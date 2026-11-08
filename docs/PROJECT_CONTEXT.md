@@ -5,6 +5,8 @@
 ## 서비스와 원본
 
 - 공개 주소: https://strawberry-village.web.app/
+- 공개 원본 저장소: https://github.com/redbee-robotics/strawberry-village
+- 누구나 저장소를 포크하고 main 브랜치에 PR을 보낼 수 있다. 기여 절차는 `CONTRIBUTING.md`에 있다.
 - Firebase 프로젝트: `strawberry-village`
 - Firebase Hosting 대상: `village`
 - Realtime Database 대상: `village`, 인스턴스 `strawberry-village-default-rtdb`, asia-southeast1 리전
@@ -12,9 +14,9 @@
 - 다른 기기와 Dot에서 여는 작업 안내: https://chatgpt.com/space/page_ad43901622ec819192358e7db8f32a9c
 - 사이트 이름: 딸기마을. 공유 설명: **온라인 딸기 농장. 함께 딸기를 키우고 수확해보세요.**
 
-원본 코드는 정적 React/Vite 및 Three.js 앱이다. 공개 서비스는 Firebase Hosting을 사용한다. Sites의 비공개 원본 저장소는 기기를 바꿔 이어서 작업하기 위한 보관 공간이다. 사용자가 배포를 요청할 때만 Firebase에 게시한다. 평소 수정은 개발 화면에서 확인하고 저장한다.
+원본 코드는 정적 React/Vite 및 Three.js 앱이다. 최신 원본은 redbee-robotics 조직의 공개 GitHub 저장소에서 관리한다. 공개 서비스는 Firebase Hosting을 사용한다. Sites에 먼저 저장한 비공개 버전과 안내 페이지의 압축 파일은 백업이다. 사용자가 배포를 요청할 때만 Firebase에 게시한다. 외부 PR 작성이나 병합만으로 자동 배포하지 않는다. 평소 수정은 개발 화면에서 확인하고 저장한다.
 
-원본의 `.openai/hosting.json`에 있는 프로젝트 ID를 그대로 사용해 Sites에서 소스 접근 권한을 발급하고, Sites 스킬의 소스 열기 절차로 체크아웃한다. 새 환경에 이 PC의 파일이나 로그인 정보가 있다고 가정하지 않는다. Firebase 배포에는 프로젝트 접근 권한이 있는 계정으로 새 환경에서 별도 로그인이 필요하다. 기존 로그인 토큰이나 서비스 계정 키는 업로드하지 않았다.
+다른 기기와 Dot에서는 GitHub 저장소의 최신 main 브랜치를 불러온다. 비공개 Sites 백업을 사용해야 할 때는 `.openai/hosting.json`에 있는 프로젝트 ID와 Sites의 소스 열기 절차를 사용하되, GitHub의 이후 변경을 오래된 백업으로 덮어쓰지 않는다. 새 환경에 이 PC의 파일이나 로그인 정보가 있다고 가정하지 않는다. Firebase 배포에는 프로젝트 접근 권한이 있는 계정으로 새 환경에서 별도 로그인이 필요하다. 기존 로그인 토큰이나 서비스 계정 키는 업로드하지 않았다.
 
 ## 사용자 결정
 
@@ -118,7 +120,7 @@ Node.js 22.13 이상에서 `npm ci` 후 `npm run dev`를 실행한다. 기본 �
 
 ## 다음 작업의 기본 흐름
 
-1. 이 문서와 AGENTS.md를 읽고, 연결된 비공개 Sites 원본의 최신 버전을 연다.
+1. GitHub 저장소의 최신 main 브랜치를 열고 이 문서와 AGENTS.md를 읽는다.
 2. 사용자가 요청한 부분을 수정하고 개발 화면과 해당 검사를 확인한다.
-3. 최신 소스를 같은 클라우드 저장소에 저장하고 변경된 작업 맥락을 갱신한다.
+3. 변경된 작업 맥락을 갱신하고 GitHub에 소스를 저장한다. 외부 기여자는 자신의 포크에서 원본 main으로 PR을 보낸다.
 4. 사용자가 배포를 요청한 경우에만 인증 상태를 확인하고 Firebase Hosting의 village 대상에 배포한다. 별도 요청 없이 Sites에 게시하거나 공개 서비스를 옮기지 않는다.

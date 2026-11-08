@@ -5,6 +5,10 @@
 공개 주소: https://strawberry-village.web.app
 Firebase 프로젝트: strawberry-village
 
+원본 저장소: https://github.com/redbee-robotics/strawberry-village
+
+누구나 저장소를 포크해 수정한 뒤 PR을 보낼 수 있습니다. 실행 방법과 기여 절차는 [기여 안내](CONTRIBUTING.md)를 참고해 주세요.
+
 ## 조작
 
 - 방향키로 걷습니다. 휴대폰에서는 조이스틱을 사용합니다.
@@ -45,7 +49,7 @@ Firebase 익명 인증으로 방문자별 접근을 구분합니다. Realtime Da
 
 Node.js 22.13 이상에서 npm ci, npm run dev를 사용합니다. Windows, macOS, Linux에서 같은 명령으로 실행할 수 있습니다.
 
-다른 기기나 Dot에서 이어서 작업할 때는 AGENTS.md와 docs/PROJECT_CONTEXT.md를 먼저 읽습니다. 클라우드에는 소스와 작업 기준을 비공개로 저장하며, 공개 서비스는 Firebase Hosting을 계속 사용합니다.
+다른 기기나 Dot에서 이어서 작업할 때는 이 GitHub 저장소의 최신 코드를 열고 AGENTS.md와 docs/PROJECT_CONTEXT.md를 먼저 읽습니다. 공개 서비스는 Firebase Hosting을 계속 사용합니다. 앞서 저장한 비공개 클라우드 버전은 백업입니다.
 
 클라우드 작업 안내: https://chatgpt.com/space/page_ad43901622ec819192358e7db8f32a9c
 
