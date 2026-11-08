@@ -4,7 +4,7 @@
 
 ## 저장과 배포
 
-- 최신 원본은 `https://github.com/redbee-robotics/strawberry-village`의 공개 저장소에서 관리한다. 외부 기여자는 포크에서 작업한 뒤 main 브랜치로 PR을 보낼 수 있다. 원본 저장소에 직접 쓰기 권한을 부여할 필요는 없다.
+- 최신 원본은 `https://github.com/redbee-robotics/strawberry-village`의 공개 저장소에서 관리한다. 쓰기 권한이 있는 기여자는 포크 없이 원본의 새 브랜치에서 main으로 PR을 보낸다. 쓰기 권한이 없는 기여자는 접근 권한을 요청하거나 자신의 포크에서 PR을 보낼 수 있다. 포크를 필수로 안내하지 않는다.
 - 사용자가 이번 작업에서 배포를 명시적으로 요청했을 때만 공개 사이트에 배포한다. 이전 작업에서의 배포 허가는 이후 수정의 자동 배포 허가가 아니다.
 - 평소에는 개발 화면에서 확인하고 클라우드 소스를 저장한다. Sites에 저장할 때도 저장만 하고 자동 게시하지 않는다.
 - 공개 서비스는 Firebase 프로젝트 `strawberry-village`의 `https://strawberry-village.web.app/`이다. 클라우드 코드 보관을 위해 등록한 Sites 프로젝트로 서비스를 임의 이전하지 않는다.

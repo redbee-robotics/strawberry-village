@@ -1,13 +1,19 @@
 # 딸기마을에 기여하기
 
-누구나 이 공개 저장소를 포크해 변경하고 PR을 보낼 수 있습니다. 원본 저장소의 쓰기 권한이나 Firebase 관리자 권한은 필요하지 않습니다.
+저장소의 쓰기 권한이 있으면 **포크 없이 원본 저장소의 새 브랜치에서 PR을 보낼 수 있습니다.** Firebase 관리자 권한은 필요하지 않습니다.
 
 ## 시작하기
 
-1. GitHub에서 저장소 오른쪽 위의 Fork를 눌러 자신의 계정으로 복사합니다.
-2. 자신의 포크를 내려받고 변경을 위한 새 브랜치를 만듭니다.
-3. `AGENTS.md`와 `docs/PROJECT_CONTEXT.md`에서 현재 동작과 사용자 결정을 확인합니다.
-4. Node.js 22.13 이상에서 다음 명령으로 실행합니다.
+1. 원본 저장소를 내려받고 변경을 위한 새 브랜치를 만듭니다.
+
+```sh
+git clone https://github.com/redbee-robotics/strawberry-village.git
+cd strawberry-village
+git switch -c my-change
+```
+
+2. `AGENTS.md`와 `docs/PROJECT_CONTEXT.md`에서 현재 동작과 사용자 결정을 확인합니다.
+3. Node.js 22.13 이상에서 다음 명령으로 실행합니다.
 
 ```sh
 npm ci
@@ -30,7 +36,21 @@ npm run build
 
 ## PR 보내기
 
-변경한 브랜치를 자신의 포크에 올리고 **Contribute → Open pull request**를 선택합니다. 대상은 `redbee-robotics/strawberry-village`의 `main` 브랜치입니다. 바뀐 동작, 변경 이유와 확인 결과를 설명해 주세요.
+변경 사항을 커밋한 뒤 자신의 작업 브랜치를 원본 저장소에 올립니다.
+
+```sh
+git push -u origin my-change
+```
+
+GitHub의 **Pull requests → New pull request**에서 base를 `main`, compare를 작업 브랜치로 선택합니다. 바뀐 동작, 변경 이유와 확인 결과를 설명해 주세요. 같은 저장소 안의 브랜치를 사용하므로 포크는 필요하지 않습니다.
+
+## 쓰기 권한이 없는 경우
+
+포크 없이 참여하려면 관리자에게 GitHub 아이디나 소속 팀을 알려 이 저장소의 쓰기 권한을 요청해 주세요. GitHub는 불특정 다수 전체에게 포크 없는 PR만 허용하는 설정을 제공하지 않습니다. [브랜치와 포크에 관한 GitHub 안내](https://docs.github.com/en/pull-requests/concepts/writing-code-for-a-project)를 참고해 주세요.
+
+권한을 추가하지 않고도 참여할 수 있습니다. 저장소를 자신의 계정으로 포크하고 그곳의 작업 브랜치에서 원본 `main`을 대상으로 PR을 보내면 됩니다.
+
+## 변경 범위와 배포
 
 작은 범위의 변경은 하나의 PR로 묶어 주세요. 큰 기능이나 기존 조작 방식의 변경은 먼저 이슈에서 방향을 이야기할 수 있습니다.
 

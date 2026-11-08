@@ -7,7 +7,7 @@ Firebase 프로젝트: strawberry-village
 
 원본 저장소: https://github.com/redbee-robotics/strawberry-village
 
-누구나 저장소를 포크해 수정한 뒤 PR을 보낼 수 있습니다. 실행 방법과 기여 절차는 [기여 안내](CONTRIBUTING.md)를 참고해 주세요.
+저장소의 쓰기 권한이 있으면 포크 없이 새 브랜치에서 PR을 보낼 수 있습니다. 쓰기 권한이 없는 참여자는 접근 권한을 요청하거나 자신의 포크에서 PR을 보낼 수 있습니다. 실행 방법과 절차는 [기여 안내](CONTRIBUTING.md)를 참고해 주세요.
 
 ## 조작
 

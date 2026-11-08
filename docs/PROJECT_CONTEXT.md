@@ -6,7 +6,7 @@
 
 - 공개 주소: https://strawberry-village.web.app/
 - 공개 원본 저장소: https://github.com/redbee-robotics/strawberry-village
-- 누구나 저장소를 포크하고 main 브랜치에 PR을 보낼 수 있다. 기여 절차는 `CONTRIBUTING.md`에 있다.
+- 쓰기 권한이 있는 참여자는 포크 없이 원본 저장소의 새 브랜치에서 main으로 PR을 보낸다. 포크를 필수로 안내하지 않는다. 쓰기 권한이 없는 사람은 접근 권한을 요청하거나 자신의 포크에서 PR을 보낼 수 있다. 기여 절차는 `CONTRIBUTING.md`에 있다.
 - Firebase 프로젝트: `strawberry-village`
 - Firebase Hosting 대상: `village`
 - Realtime Database 대상: `village`, 인스턴스 `strawberry-village-default-rtdb`, asia-southeast1 리전
@@ -122,5 +122,5 @@ Node.js 22.13 이상에서 `npm ci` 후 `npm run dev`를 실행한다. 기본 �
 
 1. GitHub 저장소의 최신 main 브랜치를 열고 이 문서와 AGENTS.md를 읽는다.
 2. 사용자가 요청한 부분을 수정하고 개발 화면과 해당 검사를 확인한다.
-3. 변경된 작업 맥락을 갱신하고 GitHub에 소스를 저장한다. 외부 기여자는 자신의 포크에서 원본 main으로 PR을 보낸다.
+3. 변경된 작업 맥락을 갱신하고 GitHub에 소스를 저장한다. 쓰기 권한이 있는 참여자는 원본의 작업 브랜치에서 main으로 PR을 보낸다. 권한이 없는 참여자는 권한을 요청하거나 자신의 포크에서 PR을 보낸다.
 4. 사용자가 배포를 요청한 경우에만 인증 상태를 확인하고 Firebase Hosting의 village 대상에 배포한다. 별도 요청 없이 Sites에 게시하거나 공개 서비스를 옮기지 않는다.
