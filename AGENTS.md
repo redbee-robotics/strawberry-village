@@ -20,6 +20,7 @@
 - `node node_modules/typescript/bin/tsc --noEmit`로 타입을 검사한다.
 - 재고 처리 변경은 `node scripts/validate-inventory.mjs`로 검증한다.
 - 이동 경로 변경은 `node scripts/validate-navigation.mjs`로 검증한다.
+- 접속 처리 변경은 `node scripts/validate-presence.mjs`로 검증한다.
 - `npm run build`로 정적 `build/` 폴더를 만든다. 이 출력은 Firebase와 클라우드 저장 버전에서 공통으로 사용한다.
 - Firebase 게시 요청을 받은 경우에만 `firebase deploy --only hosting:village --project strawberry-village --non-interactive`를 실행한다. 데이터 규칙 변경이 없으면 데이터베이스 규칙을 다시 배포하지 않는다.
 - 환경에서 브라우저를 사용할 수 있으면 실제 화면을 확인한다. 사용할 수 없으면 그 제한을 정확히 보고한다.

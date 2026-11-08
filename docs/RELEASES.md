@@ -22,3 +22,24 @@ secret이 없으면 배포 단계가 원인을 표시하고 종료합니다. 이
 4. **Actions → Release to Firebase Hosting**에서 검사와 배포 성공을 확인한 뒤 공개 사이트를 확인합니다.
 
 실행 중인 배포를 새 Release 때문에 중단하지 않도록 동시 실행을 제한합니다. 인증을 수정한 뒤에는 실패한 실행의 **Re-run failed jobs**로 같은 태그를 다시 배포할 수 있습니다.
+
+## 접속자 경로 전환
+
+운영과 개발 접속자는 각각 `village/environments/production/players`, `village/environments/development/players`에 저장합니다. 공개 운영 호스트 두 개 외의 개발·미리보기 주소는 개발 경로를 사용합니다. 이전 공용 경로 `village/players`의 데이터는 새 화면에 표시하지 않습니다.
+
+이 변경의 최초 운영 적용에는 Firebase Realtime Database 관리 권한이 있는 인증이 필요합니다. Hosting 배포 전용 서비스 계정만으로는 규칙 배포나 데이터 삭제를 할 수 없습니다. 운영 적용 요청을 받은 관리자는 다음 순서로 진행합니다.
+
+1. 새 규칙을 먼저 배포합니다. 이전 버전의 열린 탭은 공용 경로에 접근할 수 없게 되므로 마을을 새로고침해야 합니다.
+
+   ```sh
+   firebase deploy --only database:village --project strawberry-village --non-interactive
+   ```
+
+2. 이전 공용 경로의 접속 상태를 삭제합니다. 이 명령은 캐릭터의 일시적 접속 상태만 지우며 새 환경별 경로나 브라우저의 수확·포장 재고는 건드리지 않습니다.
+
+   ```sh
+   firebase database:remove /village/players --instance strawberry-village-default-rtdb --project strawberry-village --force --non-interactive
+   ```
+
+3. 새 버전을 Hosting에 배포하고 공개 마을을 새로고침합니다. GitHub Release 배포는 위 절차대로 별도 요청이 있을 때 게시합니다.
+4. 운영 탭과 개발 탭을 함께 열어도 각 환경의 접속 인원과 캐릭터가 섞이지 않는지 확인합니다. 확인용 탭은 닫아 접속 상태를 남기지 않습니다.

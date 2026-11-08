@@ -40,6 +40,9 @@ jobs:
       - name: Validate click navigation
         run: node scripts/validate-navigation.mjs
 
+      - name: Validate presence isolation
+        run: node scripts/validate-presence.mjs
+
       - name: Build the static site
         run: npm run build
 
