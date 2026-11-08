@@ -3,6 +3,7 @@ export type Jeojat = {
   site: string;
   user: JeojatUser | null;
   ready: PromiseLike<unknown>;
+  login: () => Promise<JeojatUser>;
   on: (event: "login" | "logout", listener: () => void) => unknown;
   get: (key: string) => Promise<unknown>;
   set: (key: string, value: unknown) => Promise<unknown>;
@@ -10,6 +11,14 @@ export type Jeojat = {
 
 declare global {
   interface Window { jeojat?: Jeojat }
+}
+
+// Call directly from the click handler so standalone visits can open the
+// official login popup while the browser's user gesture is still active.
+export function loginWithJeojat() {
+  const sdk = window.jeojat;
+  if (!sdk || sdk.site !== "pYUoDazk7y" || typeof sdk.login !== "function") throw new Error("Jeojat is not ready");
+  return sdk.login();
 }
 
 // embed.js validates its parent/popup messages and owns the login token.
