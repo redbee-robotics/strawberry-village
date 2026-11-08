@@ -15,6 +15,7 @@ import StationPanel, { Inventory, Bag } from "./stations";
 import type { Station, RoomId } from "./village";
 import { connectVillage } from "./presence";
 import { watchNonsanWeather, type VillageWeather } from "./weather";
+import { loginWithJeojat, watchJeojatUser, type JeojatUser } from "./jeojat";
 
 function Berry({ size = 24, ...props }: React.SVGProps<SVGSVGElement> & { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 32 36" fill="none" {...props}>
@@ -39,6 +40,7 @@ export default function Farm() {
   const backdropPress = useRef<{ x: number; y: number } | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const actionToken = useRef(0);
+  const jeojatLoginAttempt = useRef(0);
   const [showChat, setShowChat] = useState(false);
   const [conversation, setConversation] = useState(emptyConversation);
   const [nearby, setNearby] = useState<{ id: string; name: string }[]>([]);
@@ -62,6 +64,8 @@ export default function Farm() {
   const [nickname, setNickname] = useState("");
   const [nicknameDraft, setNicknameDraft] = useState("");
   const [nicknameFeedback, setNicknameFeedback] = useState("");
+  const [jeojatUser, setJeojatUser] = useState<JeojatUser | null>(null);
+  const [jeojatMessage, setJeojatMessage] = useState("");
   const [activeDrink, setActiveDrink] = useState("");
   const [saved, setSaved] = useState<FarmSave>(blankSave);
   const [loaded, setLoaded] = useState(false);
@@ -108,6 +112,10 @@ export default function Farm() {
     return () => { connection(); villageConnection.current = null; };
   }, [ready, worldVersion]);
   useEffect(() => {
+    const stop = watchJeojatUser((user) => { setJeojatUser(user); setJeojatMessage(""); }, () => { setJeojatUser(null); setJeojatMessage(""); });
+    return () => { jeojatLoginAttempt.current++; stop(); };
+  }, []);
+  useEffect(() => {
     if (!ready) return;
     const refresh = () => { const next = engine.current?.nearbyVisitors() || []; setNearby((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next); };
     refresh(); const timer = window.setInterval(refresh, 250);
@@ -135,6 +143,12 @@ export default function Farm() {
   useEffect(() => () => { const playing = audio.current; audio.current = null; if (playing && playing.context.state !== "closed") { playing.stop(); void playing.context.close(); } }, []);
 
   const notify = (text: string) => setMessage(text);
+  function enterWithJeojat() {
+    const attempt = ++jeojatLoginAttempt.current;
+    const failed = () => { if (attempt === jeojatLoginAttempt.current) setJeojatMessage("저잣거리 연결을 불러오지 못했어요. 잠시 후 다시 눌러 주세요."); };
+    setJeojatMessage("저잣거리에서 로그인과 입장을 완료해 주세요. 창을 닫았다면 다시 눌러 열 수 있어요.");
+    try { void loginWithJeojat().catch(failed); } catch { failed(); }
+  }
 
   async function toggleSound() {
     if (sound) { await audio.current?.context.suspend(); setSound(false); return; }
@@ -237,7 +251,12 @@ export default function Farm() {
     <div className="world-wash" aria-hidden="true" />
 
     <header className="topbar">
-
+      <div className="jeojat-entry">
+        <button className={`jeojat-entry-button ${jeojatUser ? "is-connected" : ""}`} type="button" onClick={jeojatUser ? () => setModal("settings") : enterWithJeojat} aria-label={jeojatUser ? `저잣거리 계정 설정, ${jeojatUser.nick}` : undefined}>
+          <Users size={16} aria-hidden="true" /><span>{jeojatUser ? <><small>저잣거리 연결됨</small><strong>{jeojatUser.nick}</strong></> : <strong>저잣거리 닉네임으로 입장하기</strong>}</span>
+        </button>
+        {jeojatMessage && modal !== "settings" && <p className="jeojat-entry-message" role="status">{jeojatMessage}</p>}
+      </div>
       <div className="season-pill"><span className="live-dot" /><Users size={15} /><span>{online === null ? "마을 연결 중" : `${online}명 접속 중`}</span><span className="pill-separator" /><WeatherIcon size={15} /><span>{weather ? `${weather.description} ${weather.temperature.toFixed(1)}°` : weatherFailed ? "날씨 확인 중" : "날씨 연결 중"}</span></div>
       <div className="header-tools">
         <button className={`icon-button ${sound ? "is-on" : ""}`} onClick={toggleSound} aria-label={sound ? "자연 소리 끄기" : "자연 소리 켜기"} aria-pressed={sound} title="자연 소리">{sound ? <Volume2 size={19} /> : <VolumeX size={19} />}</button>
@@ -312,6 +331,14 @@ export default function Farm() {
           <div className="help-contribute"><p>당신도 딸기마을에 기여할 수 있어요.</p><a href="https://github.com/redbee-robotics/strawberry-village" target="_blank" rel="noreferrer">github.com/redbee-robotics/strawberry-village <ArrowUpRight size={14} /></a></div>
         </>}
         {modal === "settings" && <>
+          <section className="jeojat-setting" aria-label="저잣거리 계정">
+            <strong>저잣거리 계정</strong>
+            {jeojatUser ? <p><b>{jeojatUser.nick}</b> 님으로 연결돼 있어요.</p> : <>
+              <p>저잣거리 닉네임과 저장된 위치로 들어올 수 있어요.</p>
+              <button type="button" onClick={enterWithJeojat}>저잣거리 닉네임으로 입장하기</button>
+            </>}
+            {jeojatMessage && <p role="status">{jeojatMessage}</p>}
+          </section>
           <form className="nickname-setting" onSubmit={(event) => { event.preventDefault(); const result = villageConnection.current?.changeName(nicknameDraft); setNicknameFeedback(result?.message || "마을에 연결된 뒤 다시 변경해 주세요."); }}>
             <label htmlFor="village-nickname">닉네임</label><div><input id="village-nickname" value={nicknameDraft} onChange={(event) => setNicknameDraft(event.target.value)} maxLength={16} autoComplete="nickname" placeholder={nickname || "닉네임"} /><button type="submit">변경</button></div>
             {nicknameFeedback && <p role="status">{nicknameFeedback}</p>}
