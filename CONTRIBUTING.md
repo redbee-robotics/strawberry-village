@@ -31,6 +31,7 @@ node node_modules/typescript/bin/tsc --noEmit
 node scripts/validate-inventory.mjs
 node scripts/validate-navigation.mjs
 node scripts/validate-presence.mjs
+node scripts/validate-presence-isolation.mjs
 npm run build
 ```
 

@@ -1,0 +1,28 @@
+name: Verify database access rules
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - name: Verify presence environment separation
+        run: node scripts/validate-presence-isolation.mjs
+      - name: Verify presence and conversation behavior
+        run: node scripts/validate-presence.mjs
+      - name: Verify actual Firebase rules
+        run: npx --yes firebase-tools@15.35.0 emulators:exec --only database --project strawberry-village --non-interactive "node scripts/validate-database-rules.mjs"

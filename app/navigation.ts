@@ -4,12 +4,12 @@ export type Obstacle = GroundPoint & { w: number; d: number };
 const distance = (a: GroundPoint, b: GroundPoint) => Math.hypot(a.x - b.x, a.z - b.z);
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-export function createNavigation(obstacles: Obstacle[]) {
+export function createNavigation(obstacles: Obstacle[], bounds = { minX: -38.5, maxX: 38.5, minZ: -33.5, maxZ: 33.5 }) {
   const walls = obstacles.map((wall) => ({
     left: wall.x - wall.w / 2 - .15, right: wall.x + wall.w / 2 + .15,
     back: wall.z - wall.d / 2 - .15, front: wall.z + wall.d / 2 + .15,
   }));
-  const isWalkable = (point: GroundPoint) => Math.abs(point.x) < 38.5 && Math.abs(point.z) < 33.5
+  const isWalkable = (point: GroundPoint) => point.x > bounds.minX && point.x < bounds.maxX && point.z > bounds.minZ && point.z < bounds.maxZ
     && !walls.some((wall) => point.x > wall.left && point.x < wall.right && point.z > wall.back && point.z < wall.front);
 
   // Test the whole segment so a route cannot cut through a narrow wall or bed.
@@ -39,7 +39,7 @@ export function createNavigation(obstacles: Obstacle[]) {
 
   function findPath(from: GroundPoint, destination: GroundPoint): GroundPoint[] {
     if (!Number.isFinite(destination.x) || !Number.isFinite(destination.z)) return [];
-    let goal = { x: clamp(destination.x, -38.45, 38.45), z: clamp(destination.z, -33.45, 33.45) };
+    let goal = { x: clamp(destination.x, bounds.minX + .05, bounds.maxX - .05), z: clamp(destination.z, bounds.minZ + .05, bounds.maxZ - .05) };
     if (!isWalkable(goal)) {
       // A tap on a table or tree ends on the nearest available ground beside it.
       const candidates = walls.flatMap((wall) => [

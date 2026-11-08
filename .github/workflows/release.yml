@@ -40,8 +40,17 @@ jobs:
       - name: Validate click navigation
         run: node scripts/validate-navigation.mjs
 
-      - name: Validate presence isolation
+      - name: Validate village state
+        run: node scripts/validate-village.mjs
+
+      - name: Validate nearby conversation
+        run: node scripts/validate-chat.mjs
+
+      - name: Validate presence and speech integration
         run: node scripts/validate-presence.mjs
+
+      - name: Validate presence environment selection and expiry
+        run: node scripts/validate-presence-isolation.mjs
 
       - name: Build the static site
         run: npm run build
@@ -54,6 +63,23 @@ jobs:
             echo "::error::Set the FIREBASE_SERVICE_ACCOUNT_STRAWBERRY_VILLAGE Actions secret before publishing a release. See docs/RELEASES.md."
             exit 1
           fi
+
+      - name: Authenticate database deployment
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STRAWBERRY_VILLAGE }}
+
+      - name: Set up Java for Firebase rule verification
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Verify actual Firebase rules before deployment
+        run: npx --yes firebase-tools@15.35.0 emulators:exec --only database --project strawberry-village --non-interactive "node scripts/validate-database-rules.mjs"
+
+      - name: Deploy shared presence and conversation rules
+        run: npx --yes firebase-tools@15.35.0 deploy --only database:village --project strawberry-village --non-interactive
 
       - name: Deploy Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
