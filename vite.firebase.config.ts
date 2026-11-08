@@ -3,6 +3,16 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react(), {
+    name: "development-preview-entry",
+    apply: "build",
+    generateBundle: {
+      order: "post",
+      handler(_options, bundle) {
+        const entry = bundle["index.html"];
+        if (entry?.type === "asset") this.emitFile({ type: "asset", fileName: "dev/index.html", source: entry.source });
+      },
+    },
+  }, {
     name: "development-status",
     apply: "serve",
     configureServer(server) {

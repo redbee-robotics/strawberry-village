@@ -1,6 +1,6 @@
 # 딸기마을
 
-논밭, 딸기 하우스, 딸기 선별장, 딸기 카페가 있는 온라인 3D 농장입니다.
+1인칭으로 걸어 다니는 논밭, 딸기 하우스, 딸기 선별장, 딸기 카페가 있는 온라인 3D 농장입니다.
 
 공개 주소: https://strawberry-village.web.app
 Firebase 프로젝트: strawberry-village

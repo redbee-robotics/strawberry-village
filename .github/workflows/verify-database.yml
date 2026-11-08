@@ -20,6 +20,11 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm ci
+      - name: Verify first-person camera and cafe exterior
+        run: |
+          node node_modules/typescript/bin/tsc --noEmit
+          node scripts/validate-first-person.mjs
+          node scripts/validate-cafe.mjs
       - name: Verify presence environment separation
         run: node scripts/validate-presence-isolation.mjs
       - name: Verify presence and conversation behavior

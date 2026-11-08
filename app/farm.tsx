@@ -211,7 +211,7 @@ export default function Farm() {
 
   const WeatherIcon = weather?.snow ? Snowflake : weather && weather.code >= 95 ? CloudLightning : weather && weather.precipitation > 0 ? CloudRain : weather && weather.cloud > 50 ? Cloud : weather && !weather.isDay ? Moon : Sun;
 
-  return <main className={`farm-app ${period} ${room !== "outside" ? "interior" : ""} ${reducedMotion ? "reduce-motion" : ""}`}>
+  return <main className={`farm-app first-person ${period} ${room !== "outside" ? "interior" : ""} ${reducedMotion ? "reduce-motion" : ""}`}>
     <div ref={mount} className="world" aria-label="논밭과 딸기 하우스, 작업장과 카페가 있는 3D 농장 마을" />
     <div className="world-wash" aria-hidden="true" />
 
@@ -260,7 +260,7 @@ export default function Farm() {
         {bedAccess.inspect && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("inspect"))} onClick={() => engine.current?.inspectBed()}><Search size={23} /><span>{bedAccess.inspecting ? "돌아가기" : "살펴보기"}</span><i>{contextKey("inspect")}</i></button>}
         {nearby.length > 0 && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("talk"))} onClick={() => setModal("chat")}><MessageCircle size={23} /><span>말 걸기</span><i>{contextKey("talk")}</i></button>}
       </nav>}
-      <div className="mouse-guide"><span>클릭 / 터치 <b>걷기</b></span><span>좌클릭 + 드래그 <b>화면 이동</b></span><span>우클릭 + 드래그 <b>화면 회전</b></span><span>휠 <b>확대/축소</b></span></div>
+      <div className="mouse-guide"><span>방향키 / 바닥 클릭 <b>걷기</b></span><span>드래그 <b>둘러보기</b></span><span>스페이스바 <b>점프</b></span><span>휠 <b>확대/축소</b></span></div>
     </footer>
 
     {activeDrink && <span className="held-drink"><Coffee size={16} />{activeDrink}</span>}
@@ -278,7 +278,7 @@ export default function Farm() {
           <p className="modal-intro">정해진 순서도, 해야 할 일도 없어요.<br />당신의 속도로 머물러 주세요.</p>
           <div className="help-list">
             <div><Footprints /><span><strong>천천히 걸어요</strong><small>가고 싶은 곳을 클릭하거나 터치하면 그곳으로 걸어가요. 방향키로 걷고 스페이스바로 점프해요.</small></span></div>
-            <div><Compass /><span><strong>시선을 바꿔요</strong><small>모바일은 한 손가락으로 화면을 옮기고, 두 손가락으로 회전하거나 핀치로 확대·축소해요. 마우스는 좌클릭 드래그로 이동, 우클릭 드래그로 회전, 휠로 확대·축소해요.</small></span></div>
+            <div><Compass /><span><strong>내 눈높이에서 둘러봐요</strong><small>1인칭으로 마을을 걸어요. 마우스나 손가락으로 드래그하면 주변을 둘러볼 수 있어요. 휠이나 두 손가락 핀치로 시야를 확대·축소해요.</small></span></div>
             <div><Droplets /><span><strong>작은 마음을 나눠요</strong><small>딸기 베드 가까이 가면 물 주기와 수확 버튼이 켜져요. 낱알은 바구니에 담겨요.</small></span></div>
             <div><Package /><span><strong>바구니를 들고 선별장으로</strong><small>선별장에 걸어 들어가면 바구니 속 딸기를 팩에 담을 수 있어요.</small></span></div>
             <div><Coffee /><span><strong>카페도 걸어서 들어가요</strong><small>딸기 카페 안의 점원에게 딸기 음료를 주문할 수 있어요.</small></span></div>
