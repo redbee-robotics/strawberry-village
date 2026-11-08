@@ -1,39 +1,40 @@
 export type FollowView = { yaw: number; pitch: number; distance: number };
+type FollowRoom = boolean | "cafe" | "sorting";
 type Position = { x: number; y: number; z: number };
 export type CameraBounds = { min: Position; max: Position };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-export function readFollowView(saved?: unknown): FollowView {
+export function readFollowView(saved?: unknown, room: FollowRoom = false): FollowView {
   const value = saved as Partial<FollowView> | null;
   return {
     yaw: Number.isFinite(value?.yaw) ? Math.atan2(Math.sin(value!.yaw!), Math.cos(value!.yaw!)) : Math.PI,
     pitch: Number.isFinite(value?.pitch) ? clamp(value!.pitch!, -1.05, -0.12) : -0.38,
-    distance: Number.isFinite(value?.distance) ? clamp(value!.distance!, 3, 18) : 7.5,
+    distance: Number.isFinite(value?.distance) ? clamp(value!.distance!, 3, room === "sorting" ? 48 : 18) : 7.5,
   };
 }
 
-export function turnFollowView(view: FollowView, dx: number, dy: number): FollowView {
-  return readFollowView({ ...view, yaw: view.yaw - dx * 0.004, pitch: view.pitch - dy * 0.004 });
+export function turnFollowView(view: FollowView, dx: number, dy: number, room: FollowRoom = false): FollowView {
+  return readFollowView({ ...view, yaw: view.yaw - dx * 0.004, pitch: view.pitch - dy * 0.004 }, room);
 }
 
-export function zoomFollowView(view: FollowView, factor: number): FollowView {
-  return readFollowView({ ...view, distance: view.distance * factor });
+export function zoomFollowView(view: FollowView, factor: number, room: FollowRoom = false): FollowView {
+  return readFollowView({ ...view, distance: view.distance * factor }, room);
 }
 
 export function followForward(view: FollowView) {
   return { x: Math.sin(view.yaw), z: Math.cos(view.yaw) };
 }
 
-export function followFrame(position: Position, posture: "stand" | "sit" | "lie", view: FollowView, mobile: boolean, indoors: boolean | "cafe" = false) {
+export function followFrame(position: Position, posture: "stand" | "sit" | "lie", view: FollowView, mobile: boolean, indoors: FollowRoom = false) {
   const cafe = indoors === "cafe";
   const target = { ...position, y: position.y + (posture === "stand" ? (cafe ? 1.35 : 1.1) : posture === "sit" ? 0.85 : 0.75) };
-  const distance = cafe ? clamp(view.distance, 6, 16) : Math.min(view.distance, indoors ? 8 : 18);
+  const distance = cafe ? clamp(view.distance, 6, 16) : indoors === "sorting" ? clamp(view.distance, 3, 48) : Math.min(view.distance, indoors ? 8 : 18);
   const pitch = cafe ? Math.max(view.pitch, -0.38) : view.pitch;
   const horizontal = Math.cos(pitch) * distance, forward = followForward(view);
   return {
     target,
     eye: { x: target.x - forward.x * horizontal, y: target.y - Math.sin(pitch) * distance, z: target.z - forward.z * horizontal },
-    fov: cafe ? (mobile ? 74 : 70) + (distance - 6) * 2 : mobile ? 65 : 60,
+    fov: cafe ? (mobile ? 74 : 70) + (distance - 6) * 2 : indoors === "sorting" ? (mobile ? 76 : 68) : mobile ? 65 : 60,
   };
 }
 

@@ -50,6 +50,19 @@ for (const mobile of [false, true]) {
   assert.ok(cafe.eye.y < 7.3, "The larger cafe leaves room above the camera");
 }
 const origin = { x: 0, y: 1.1, z: 0 }, wanted = { x: 0, y: 3, z: 5 };
+const sortingZoom = zoomFollowView(view, 100, "sorting");
+close(sortingZoom.distance, 48);
+const sortingTurn = turnFollowView(sortingZoom, 140, -20, "sorting");
+close(sortingTurn.distance, 48);
+assert.deepEqual(readFollowView(sortingTurn, "sorting"), sortingTurn, "Sorting zoom survives rotation and saved-view restoration");
+for (const mobile of [false, true]) {
+  const sorting = followFrame(position, "stand", sortingTurn, mobile, "sorting");
+  close(distance(sorting.eye, sorting.target), 48);
+  assert.deepEqual(sorting.target, frame.target, "Sorting zoom stays centered on the character");
+  assert.ok(sorting.fov >= 68);
+}
+close(readFollowView(sortingTurn).distance, 18);
+close(distance(followFrame(position, "stand", sortingTurn, false, true).eye, frame.target), 8);
 const wall = { min: { x: -4, y: 0, z: 2 }, max: { x: 4, y: 4, z: 2.1 } };
 const blocked = constrainFollowEye(origin, wanted, [wall]);
 assert.ok(blocked.z < 1.82 && blocked.z > 1, "Camera stops before a wall with near-plane clearance");
