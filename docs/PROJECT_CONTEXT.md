@@ -9,6 +9,7 @@
 - Firebase Hosting 대상: `village`
 - Realtime Database 대상: `village`, 인스턴스 `strawberry-village-default-rtdb`, asia-southeast1 리전
 - 비공개 클라우드 원본의 Sites 프로젝트 ID: `appgprj_6aef20203f6c81918b7ddf5f43187f9f`
+- 다른 기기와 Dot에서 여는 작업 안내: https://chatgpt.com/space/page_ad43901622ec819192358e7db8f32a9c
 - 사이트 이름: 딸기마을. 공유 설명: **온라인 딸기 농장. 함께 딸기를 키우고 수확해보세요.**
 
 원본 코드는 정적 React/Vite 및 Three.js 앱이다. 공개 서비스는 Firebase Hosting을 사용한다. Sites의 비공개 원본 저장소는 기기를 바꿔 이어서 작업하기 위한 보관 공간이다. 사용자가 배포를 요청할 때만 Firebase에 게시한다. 평소 수정은 개발 화면에서 확인하고 저장한다.
@@ -92,7 +93,7 @@ WASD와 클릭해서 걷기는 사용하지 않는다. 행동을 선택해도 �
 | database.rules.json | 방문자 상태 접근 규칙 |
 | .openai/hosting.json | 비공개 클라우드 원본의 Sites 식별 정보 |
 
-Vinext, Cloudflare, D1 관련 초기 템플릿 파일이 일부 남아 있으나 현재 Vite/Firebase 앱은 이를 사용하지 않는다. 앱을 임의로 해당 초기 템플릿에 되돌리지 않는다. 실제 정적 앱은 별도 서버나 D1 설정 없이 실행된다.
+Vinext, Cloudflare, D1 관련 초기 템플릿 파일이 일부 남아 있으나 현재 Vite/Firebase 앱은 이를 사용하지 않는다. 예전 D1 마이그레이션은 `examples/d1/drizzle/`에 보관한다. 앱을 임의로 해당 초기 템플릿에 되돌리지 않는다. 실제 정적 앱은 별도 서버나 D1 설정 없이 실행된다.
 
 ## 사진의 사용 범위
 

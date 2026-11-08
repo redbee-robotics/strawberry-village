@@ -47,6 +47,8 @@ Node.js 22.13 이상에서 npm ci, npm run dev를 사용합니다. Windows, macO
 
 다른 기기나 Dot에서 이어서 작업할 때는 AGENTS.md와 docs/PROJECT_CONTEXT.md를 먼저 읽습니다. 클라우드에는 소스와 작업 기준을 비공개로 저장하며, 공개 서비스는 Firebase Hosting을 계속 사용합니다.
 
+클라우드 작업 안내: https://chatgpt.com/space/page_ad43901622ec819192358e7db8f32a9c
+
 검증: node node_modules/typescript/bin/tsc --noEmit
 재고 검증: node scripts/validate-inventory.mjs
 빌드: npm run build
