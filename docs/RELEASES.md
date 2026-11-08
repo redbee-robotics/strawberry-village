@@ -25,4 +25,26 @@ secret이 없으면 배포 단계가 원인을 표시하고 종료합니다. 이
 
 ## 주변 대화 활성화
 
-`village/speech` 경로는 별도의 Realtime Database 규칙이 필요합니다. 사이트 파일만 게시해도 이 규칙이 적용되지는 않습니다. 관리자 인증 후 `firebase deploy --only database:village --project strawberry-village --non-interactive`로 적용하거나, 위 권한을 가진 서비스 계정으로 Release 워크플로를 실행합니다. 규칙 배포 전에는 게임 이동·재고를 사용할 수 있고 대화 전송은 연결 불가 상태로 표시합니다.
+`village/environments/$environment/speech` 경로는 별도의 Realtime Database 규칙이 필요합니다. 사이트 파일만 게시해도 이 규칙이 적용되지는 않습니다. 관리자 인증 후 `firebase deploy --only database:village --project strawberry-village --non-interactive`로 적용하거나, 위 권한을 가진 서비스 계정으로 Release 워크플로를 실행합니다. 규칙 배포 전에는 게임 이동·재고를 사용할 수 있고 대화 전송은 연결 불가 상태로 표시합니다.
+
+## 접속자 경로 전환
+
+운영과 개발 접속자는 각각 `village/environments/production`, `village/environments/development` 아래의 `players`와 `speech`에서 인원·캐릭터·닉네임·대화를 별도로 공유합니다. 공개 운영 호스트 두 개 외의 개발·미리보기 주소는 개발 경로를 사용합니다. 이전 공용 경로 `village/players`와 `village/speech`의 상태는 새 화면에 표시하지 않습니다.
+
+최초 운영 적용에는 Firebase Realtime Database 관리 권한이 있는 인증이 필요합니다. Hosting 배포 전용 권한만으로는 규칙 배포나 데이터 삭제를 할 수 없습니다. 운영 적용 요청을 받은 관리자는 다음 순서로 진행합니다.
+
+1. 새 규칙을 먼저 배포합니다. 이전 버전의 열린 탭은 공용 경로에 접근할 수 없게 되므로 마을을 새로고침해야 합니다. 별도 요청으로 게시한 Release 워크플로에서 새 규칙과 Hosting 배포가 모두 성공했다면 수동 배포는 생략합니다.
+
+   ```sh
+   firebase deploy --only database:village --project strawberry-village --non-interactive
+   ```
+
+2. 이전 공용 경로의 접속 상태와 말풍선을 삭제합니다. 이 명령은 일시적 접속·대화 상태만 지우며 새 환경별 경로나 브라우저의 수확·포장 재고는 건드리지 않습니다.
+
+   ```sh
+   firebase database:remove /village/players --instance strawberry-village-default-rtdb --project strawberry-village --force --non-interactive
+   firebase database:remove /village/speech --instance strawberry-village-default-rtdb --project strawberry-village --force --non-interactive
+   ```
+
+3. 새 버전을 Hosting에 아직 배포하지 않았다면 배포하고 공개 마을을 새로고침합니다. GitHub Release는 별도 요청이 있을 때 게시합니다.
+4. 운영 탭과 개발 탭을 함께 열어도 각 환경의 접속 인원·캐릭터·닉네임·대화가 섞이지 않는지 확인합니다. 확인용 탭은 닫아 접속 상태를 남기지 않습니다.

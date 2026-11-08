@@ -49,6 +49,9 @@ jobs:
       - name: Validate presence and speech integration
         run: node scripts/validate-presence.mjs
 
+      - name: Validate presence environment selection and expiry
+        run: node scripts/validate-presence-isolation.mjs
+
       - name: Build the static site
         run: npm run build
 

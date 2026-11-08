@@ -44,6 +44,8 @@ Firebase 프로젝트: strawberry-village
 
 Firebase 익명 인증으로 방문자별 접근을 구분합니다. Realtime Database에서 캐릭터 이름, 위치, 행동, 바구니 수량을 동기화합니다. 각 방문자는 자신의 접속 상태만 쓸 수 있고, 연결 해제 시 해당 상태가 제거됩니다. 수확과 포장 기록은 현재 브라우저에 저장됩니다.
 
+운영 마을과 개발·미리보기 마을은 접속 인원과 캐릭터를 별도로 공유합니다. 30초 이상 갱신되지 않은 접속 상태는 표시하지 않습니다. 이 분리 기능을 처음 적용할 때는 [접속자 경로 전환 절차](docs/RELEASES.md#접속자-경로-전환)에 따라 데이터베이스 규칙도 배포해야 합니다.
+
 ## 개발과 배포
 
 Node.js 22.13 이상에서 npm ci, npm run dev를 사용합니다. Windows, macOS, Linux에서 같은 명령으로 실행할 수 있습니다.
@@ -56,6 +58,8 @@ Node.js 22.13 이상에서 npm ci, npm run dev를 사용합니다. Windows, macO
 마을 검증: node scripts/validate-village.mjs
 대화 검증: node scripts/validate-chat.mjs
 접속·말풍선 모의 통합 검사: node scripts/validate-presence.mjs
+
+접속 환경·만료 검사: node scripts/validate-presence-isolation.mjs
 빌드: npm run build
 배포: firebase deploy --only hosting:village --project strawberry-village
 접속 규칙 배포: firebase deploy --only database:village --project strawberry-village
@@ -66,4 +70,4 @@ Node.js 22.13 이상에서 npm ci, npm run dev를 사용합니다. Windows, macO
 
 Firebase 로그인 정보는 소스에 포함하지 않습니다. 새로운 작업 환경에서 배포할 때는 해당 Firebase 프로젝트에 접근 가능한 계정으로 별도 로그인해야 합니다.
 
-주변 대화에는 새 `village/speech` 데이터베이스 규칙 배포가 필요합니다. 정적 사이트만 게시한 상태에서는 대화 전송을 사용할 수 없습니다. 배포 전 확인 사항은 [Release 안내](docs/RELEASES.md)를 참고하세요.
+주변 대화에는 새 `village/environments/$environment/speech` 데이터베이스 규칙 배포가 필요합니다. 정적 사이트만 게시한 상태에서는 대화 전송을 사용할 수 없습니다. 배포 전 확인 사항은 [Release 안내](docs/RELEASES.md)를 참고하세요.

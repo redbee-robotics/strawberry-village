@@ -4,8 +4,10 @@ import ts from "typescript";
 const compile = (name) => ts.transpileModule(fs.readFileSync(new URL(`../app/${name}.ts`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
 const module = async (name) => import(`data:text/javascript;base64,${Buffer.from(compile(name)).toString("base64")}`);
 const names = await module("nicknames"), chat = await module("chat"), poses = await module("presence-pose"), locations = await module("locations");
+const presence = await module("presence-state");
 const store = {}, listeners = new Set(), timers = new Map();
 let authIndex = 0, timerIndex = 0, now = Date.now();
+let pauseSpeech = false, completeSpeech;
 const originalNow = Date.now;
 Date.now = () => now;
 const read = (path) => path.split("/").reduce((value, key) => value?.[key], store) ?? null;
@@ -18,10 +20,10 @@ const bindings = {
   onValue: (path, callback) => { const listener = { path, callback }; listeners.add(listener); callback({ val: () => path === ".info/connected" ? true : path === ".info/serverTimeOffset" ? 0 : structuredClone(read(path)) }); return () => listeners.delete(listener); },
   onDisconnect: () => ({ remove: async () => {} }),
   serverTimestamp: () => now,
-  set: async (path, value) => { write(path, value); emit(path); }, remove: async (path) => { write(path, null); emit(path); },
-  firebaseConfig: {}, ...names, ...chat, ...poses, ...locations,
+  set: async (path, value) => { if (pauseSpeech && path.includes("/speech/")) await new Promise(resolve => { completeSpeech = resolve; }); write(path, value); emit(path); }, remove: async (path) => { write(path, null); emit(path); },
+  firebaseConfig: {}, ...names, ...chat, ...poses, ...locations, ...presence,
 };
-globalThis.window = { setInterval: (callback) => { timers.set(++timerIndex, callback); return timerIndex; }, clearInterval: (id) => timers.delete(id), setTimeout: () => ++timerIndex, clearTimeout: () => {}, addEventListener: () => {}, removeEventListener: () => {} };
+globalThis.window = { location: { hostname: "localhost" }, setInterval: (callback) => { timers.set(++timerIndex, callback); return timerIndex; }, clearInterval: (id) => timers.delete(id), setTimeout: () => ++timerIndex, clearTimeout: () => {}, addEventListener: () => {}, removeEventListener: () => {} };
 globalThis.document = { hidden: false, addEventListener: () => {}, removeEventListener: () => {} };
 const memory = new Map(); globalThis.sessionStorage = { getItem: (key) => memory.get(key) || null, setItem: (key, value) => memory.set(key, value) };
 const source = compile("presence").replace(/^import .*;\n/gm, "").replace("export function connectVillage", "function connectVillage");
@@ -32,6 +34,7 @@ function world(x) { const state = { pose: { x, z: 9, angle: 0, action: "walk", b
   state.getPose = () => state.pose; state.setName = (name) => state.name = name; state.setPlayers = (players) => state.remotes = players; state.setLocalSpeech = (text) => state.speech = text; state.nearbyVisitors = () => state.remotes.filter((remote) => chat.canHear(state.pose, remote)); worlds.push(state); return state;
 }
 try {
+  for (let i = 0; i < 10; i++) write(`village/players/legacy/old-${i}`, { id: `old-${i}`, name: "산들바람", x: 0, z: 9, angle: 0, action: "walk", basket: 0, updatedAt: now });
   for (const x of [0, 1, 2]) { const next = world(x); connections.push(connect(next, (count) => next.count = count, (name) => next.name = name, (state) => next.conversation = state)); }
   await flush();
   assert.ok(worlds.every((state) => state.count === 3 && state.conversation.ready));
@@ -53,5 +56,25 @@ try {
   now += chat.SPEECH_LIFETIME + 1; for (const tick of [...timers.values()]) tick(); await flush();
   assert.equal(worlds[0].speech, ""); assert.ok(worlds[1].remotes.every((remote) => !remote.speech));
   connections[2](); await flush(); assert.equal(worlds[0].count, 2);
-  console.log("Presence integration passed with simulated Firebase transport: three visitors, unique names, rejected duplicate rename, group speech, distance/room filtering, cooldown, bubble expiry and disconnect cleanup.");
+  window.location.hostname = "strawberry-village.web.app";
+  for (const x of [0, 1]) { const next = world(x); connections.push(connect(next, (count) => next.count = count, (name) => next.name = name, (state) => next.conversation = state)); }
+  window.location.hostname = "localhost";
+  await flush();
+  assert.ok(worlds.slice(0, 2).every((state) => state.count === 2 && state.remotes.length === 1));
+  assert.ok(worlds.slice(3).every((state) => state.count === 2 && state.remotes.length === 1 && state.conversation.ready));
+  assert.equal(connections[0].changeName("두 마을 같은 이름").ok, true); await flush();
+  assert.equal(connections[3].changeName("두 마을 같은 이름").ok, true); await flush();
+  assert.equal((await connections[3].say("운영 마을에서만")).ok, true); await flush();
+  assert.ok(worlds.slice(3).every((state) => state.conversation.messages.some((message) => message.text === "운영 마을에서만")));
+  assert.ok(worlds.slice(0, 2).every((state) => !state.conversation.messages.some((message) => message.text === "운영 마을에서만")));
+  now += 1100; assert.equal((await connections[0].say("개발 마을에서만")).ok, true); await flush();
+  assert.ok(worlds.slice(3).every((state) => !state.conversation.messages.some((message) => message.text === "개발 마을에서만")));
+  connections[3](); connections[4](); await flush();
+  assert.ok(worlds.slice(0, 2).every((state) => state.count === 2));
+  now += 1100; pauseSpeech = true;
+  const pendingSpeech = connections[0].say("종료 중인 말풍선"); await flush();
+  assert.ok(completeSpeech); connections[0](); pauseSpeech = false; completeSpeech();
+  assert.equal((await pendingSpeech).ok, false); await flush();
+  assert.deepEqual(Object.keys(read(`${presence.villagePresencePaths("localhost").speech}/visitor-1`) || {}), []);
+  console.log("Presence integration passed with simulated Firebase transport: unique names, rename rejection, group speech, distance/room filtering, cooldown, bubble expiry, disconnect cleanup, legacy exclusion and production/development player and speech isolation.");
 } finally { for (const stop of connections) stop(); Date.now = originalNow; delete globalThis.window; delete globalThis.document; delete globalThis.sessionStorage; }
