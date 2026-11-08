@@ -7,6 +7,7 @@ export type Station = "sorting" | "packing" | "cafe";
 export type RoomId = "outside" | "cafe" | "sorting" | "house-0" | "house-1" | "house-2" | "house-3" | "house-4" | "house-5";
 export type VillageBerry = { mesh: THREE.Mesh; x: number; z: number; aisle: number; growAt: number; ready: boolean };
 type Pose = { p: number[]; s: number[]; r?: number[] };
+export const SORTING_ROOM = { halfWidth: 8, backZ: 16.4, frontZ: 26.4, height: 4.6, tableZ: 22.2 };
 
 export function buildVillage(scene: THREE.Object3D) {
   const rooms: Record<string, THREE.Group> = {};
@@ -222,19 +223,34 @@ export function buildVillage(scene: THREE.Object3D) {
   // Open-front sorting and packing workshop; the stations are part of the village.
   const sortingRoot = new THREE.Group(); sortingRoot.name = "sorting"; scene.add(sortingRoot); rooms.sorting = sortingRoot; activeParent = sortingRoot;
   const packingWall = standard("#d5d9c9"), packingRoof = standard("#8b9b8e"), crate = standard("#68806a");
-  for (const x of [-3.7, 3.7]) { box([x, 1.65, 16.4], [4.6, 3.3, .18], packingWall); obstacles.push({ x, z: 16.4, w: 4.9, d: .45 }); }
-  box([0, 2.95, 16.4], [2.8, .7, .18], packingWall);
+  const { halfWidth, backZ, frontZ, height, tableZ } = SORTING_ROOM;
+  const centerZ = (backZ + frontZ) / 2, depth = frontZ - backZ;
+  const sortingShell: { object: THREE.Object3D; side: "back" | "left" | "right" | "roof" | "sign" }[] = [];
+  for (const side of [-1, 1]) {
+    const x = side * (halfWidth + 1.4) / 2, width = halfWidth - 1.4;
+    const wall = box([x, height / 2, backZ], [width, height, .18], packingWall);
+    sortingShell.push({ object: wall, side: "back" }); obstacles.push({ x, z: backZ, w: width + .3, d: .45 });
+  }
+  const lintel = box([0, (height + 2.6) / 2, backZ], [2.8, height - 2.6, .18], packingWall);
+  sortingShell.push({ object: lintel, side: "back" });
   box([0, .04, 13], [2.4, .08, 7], m.path);
-  for (const x of [-6, 6]) { box([x, 1.65, 19.4], [.18, 3.3, 6.2], packingWall); obstacles.push({ x, z: 19.4, w: .5, d: 6.5 }); }
-  const workshopRoof = box([0, 3.6, 19.4], [13, .2, 7.3], packingRoof); workshopRoof.rotation.x = -.06; station(workshopRoof, "sorting"); cutaways.push({ object: workshopRoof, x: 0, z: 20, w: 17, d: 12 });
-  box([0, .015, 20.2], [12.5, .08, 7.5], standard("#c9c5af"));
-  box([0, .05, 25], [3.1, .1, 4.5], m.path);
-  const workshopLabel = label("딸기 선별장", [0, 5.2, 19]); station(workshopLabel, "sorting");
-  const sortingTable = box([0, .9, 20.8], [8.8, .18, 1.6], m.white); station(sortingTable, "sorting"); obstacles.push({ x: 0, z: 20.8, w: 9.1, d: 1.9 });
-  for (const x of [-3.8, 0, 3.8]) for (const dz of [-.55, .55]) box([x, .44, 20.8 + dz], [.09, .9, .09], m.steel);
-  for (let i = 0; i < 7; i++) box([-3.4 + i * 1.12, 1.12, 20.8], [.85, .23, 1.1], i < 3 ? crate : standard("#d4d9ca"));
-  for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) box([7.4 + j * .9, .25 + i * .5, 20.3], [.8, .45, 1.2], crate);
-  obstacles.push({ x: 8.3, z: 20.3, w: 2.6, d: 1.2 });
+  for (const side of [-1, 1]) {
+    const x = side * halfWidth, wall = box([x, height / 2, centerZ], [.18, height, depth], packingWall);
+    sortingShell.push({ object: wall, side: side < 0 ? "left" : "right" }); obstacles.push({ x, z: centerZ, w: .5, d: depth + .3 });
+  }
+  const workshopRoof = box([0, height + .3, centerZ], [halfWidth * 2 + 1, .2, depth + 1.1], packingRoof); workshopRoof.rotation.x = -.06; station(workshopRoof, "sorting");
+  sortingShell.push({ object: workshopRoof, side: "roof" });
+  box([0, .015, centerZ], [halfWidth * 2 + .5, .08, depth + .5], standard("#c9c5af"));
+  box([0, .05, (frontZ + 27) / 2], [3.1, .1, 27 - frontZ + 1], m.path);
+  const workshopLabel = label("딸기 선별장", [0, height + 1.6, centerZ]); station(workshopLabel, "sorting"); sortingShell.push({ object: workshopLabel, side: "sign" });
+  const sortingTable = box([0, .9, tableZ], [8.8, .18, 1.6], m.white); station(sortingTable, "sorting"); obstacles.push({ x: 0, z: tableZ, w: 9.1, d: 1.9 });
+  for (const x of [-3.8, 0, 3.8]) for (const dz of [-.55, .55]) box([x, .44, tableZ + dz], [.09, .9, .09], m.steel);
+  for (let i = 0; i < 7; i++) box([-3.4 + i * 1.12, 1.12, tableZ], [.85, .23, 1.1], i < 3 ? crate : standard("#d4d9ca"));
+  for (let j = 0; j < 3; j++) {
+    const x = halfWidth - 1.6, z = centerZ - 1.5 + j * 1.5;
+    for (let i = 0; i < 3; i++) box([x, .25 + i * .5, z], [.8, .45, 1.2], crate);
+    obstacles.push({ x, z, w: .8, d: 1.2 });
+  }
 
   activeParent = scene;
   // A rest stop by the outer lane.
@@ -255,5 +271,5 @@ export function buildVillage(scene: THREE.Object3D) {
     const z = -30 + i * 15; cylinder([-35.5, 3.4, z], [.09, 6.8, .09], standard("#aaa892")); box([-35.5, 6.4, z], [1.9, .09, .1], m.darkwood);
     if (i < 4) for (const dx of [-.65, .65]) { const points = []; for (let k = 0; k <= 12; k++) { const t = k / 12; points.push(new THREE.Vector3(-35.5 + dx, 6.45 - Math.sin(t * Math.PI) * .65, z + t * 15)); } scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), cableMaterial)); }
   }
-  return { obstacles, berries, beds, swaying, pondRipples, interactive, cutaways, seats, loungers, rooms, cafeInterior, cafeExteriorDoor, placeLabels, terrain };
+  return { obstacles, berries, beds, swaying, pondRipples, interactive, cutaways, seats, loungers, rooms, cafeInterior, cafeExteriorDoor, placeLabels, terrain, sortingShell };
 }
