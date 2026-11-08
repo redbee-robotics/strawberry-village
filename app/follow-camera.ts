@@ -8,7 +8,7 @@ export function readFollowView(saved?: unknown): FollowView {
   return {
     yaw: Number.isFinite(value?.yaw) ? Math.atan2(Math.sin(value!.yaw!), Math.cos(value!.yaw!)) : Math.PI,
     pitch: Number.isFinite(value?.pitch) ? clamp(value!.pitch!, -1.05, -0.12) : -0.38,
-    distance: Number.isFinite(value?.distance) ? clamp(value!.distance!, 3, 6) : 4.8,
+    distance: Number.isFinite(value?.distance) ? clamp(value!.distance!, 3, 18) : 7.5,
   };
 }
 
@@ -26,7 +26,7 @@ export function followForward(view: FollowView) {
 
 export function followFrame(position: Position, posture: "stand" | "sit" | "lie", view: FollowView, mobile: boolean, indoors = false) {
   const target = { ...position, y: position.y + (posture === "stand" ? 1.1 : posture === "sit" ? 0.85 : 0.75) };
-  const distance = Math.min(view.distance, indoors ? 3.6 : 6);
+  const distance = Math.min(view.distance, indoors ? 8 : 18);
   const horizontal = Math.cos(view.pitch) * distance, forward = followForward(view);
   return {
     target,

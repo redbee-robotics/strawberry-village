@@ -10,7 +10,7 @@ const frame = followFrame(position, "stand", view, false);
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} != ${b}`);
 assert.deepEqual(frame.target, { x: 21, y: 1.1, z: 3 });
-close(distance(frame.eye, frame.target), 4.8);
+close(distance(frame.eye, frame.target), 7.5);
 assert.ok(frame.eye.z > frame.target.z && frame.eye.y > frame.target.y, "See the character from behind and above");
 const turned = turnFollowView(view, 80, -30);
 assert.ok(followForward(turned).x > 0, "Dragging right turns the view right");
@@ -19,7 +19,7 @@ for (const amount of [-1e6, -200, 200, 1e6]) {
   const rotated = turnFollowView(view, amount, amount);
   const orbit = followFrame(position, "stand", rotated, false);
   assert.deepEqual(orbit.target, frame.target, "Rotation never pans away from the character");
-  close(distance(orbit.eye, orbit.target), 4.8);
+  close(distance(orbit.eye, orbit.target), 7.5);
   assert.ok(orbit.eye.y > orbit.target.y, "Cannot orbit beneath the character");
   assert.ok(Math.abs(rotated.yaw) <= Math.PI);
 }
@@ -36,10 +36,13 @@ for (const factor of [0.01, 100]) {
   const zoomed = followFrame(position, "stand", zoomFollowView(view, factor), true);
   assert.deepEqual(zoomed.target, frame.target, "Zoom keeps the character at the center");
   assert.ok(distance(zoomed.eye, zoomed.target) >= 3 - 1e-8);
-  assert.ok(distance(zoomed.eye, zoomed.target) <= 6 + 1e-8, "Cannot zoom out into the old village overview");
+  assert.ok(distance(zoomed.eye, zoomed.target) <= 18 + 1e-8, "Zoom remains bounded around the character");
   const room = followFrame(position, "stand", zoomFollowView(view, factor), true, true);
-  assert.ok(distance(room.eye, room.target) <= 3.6 + 1e-8);
+  assert.ok(distance(room.eye, room.target) <= 8 + 1e-8);
 }
+const wide = followFrame(position, "stand", zoomFollowView(view, 100), false);
+close(distance(wide.eye, wide.target), 18);
+assert.deepEqual(wide.target, frame.target, "The wider view stays anchored to the character");
 const origin = { x: 0, y: 1.1, z: 0 }, wanted = { x: 0, y: 3, z: 5 };
 const wall = { min: { x: -4, y: 0, z: 2 }, max: { x: 4, y: 4, z: 2.1 } };
 const blocked = constrainFollowEye(origin, wanted, [wall]);
