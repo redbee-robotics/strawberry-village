@@ -7,7 +7,7 @@
 - 최신 원본은 `https://github.com/redbee-robotics/strawberry-village`의 공개 저장소에서 관리한다. 쓰기 권한이 있는 기여자는 포크 없이 원본의 새 브랜치에서 main으로 PR을 보낸다. 쓰기 권한이 없는 기여자는 접근 권한을 요청하거나 자신의 포크에서 PR을 보낼 수 있다. 포크를 필수로 안내하지 않는다.
 - 사용자가 이번 작업에서 배포를 명시적으로 요청했을 때만 공개 사이트에 배포한다. 이전 작업에서의 배포 허가는 이후 수정의 자동 배포 허가가 아니다.
 - GitHub Release를 게시하면 해당 태그를 검사하고 Firebase Hosting에 배포하는 파이프라인을 사용한다. PR 작성·병합과 태그 push는 배포하지 않는다. 사용자의 별도 요청 없이 Release를 게시하지 않는다. 최초 secret 설정은 `docs/RELEASES.md`를 따른다.
-- 평소에는 개발 화면에서 확인하고 클라우드 소스를 저장한다. Sites에 저장할 때도 저장만 하고 자동 게시하지 않는다.
+- 평소에는 개발 화면에서 확인하고 클라우드 소스를 저장한다. 별도 요청 없이 Sites에 자동 게시하지 않는다. 현재 작업에서 사용자가 비공개 확인용 웹 주소 게시를 명시적으로 요청한 경우에는 같은 비공개 Site의 수정본을 갱신한다.
 - 공개 서비스는 Firebase 프로젝트 `strawberry-village`의 `https://strawberry-village.web.app/`이다. 클라우드 코드 보관을 위해 등록한 Sites 프로젝트로 서비스를 임의 이전하지 않는다.
 - 같은 Sites 프로젝트 ID를 재사용하고, 새 프로젝트를 중복 생성하지 않는다.
 - Sites의 비공개 저장 버전과 안내 페이지의 압축 파일은 백업이다. GitHub에서 이후 변경이 진행되면 오래된 백업으로 덮어쓰지 않는다.
@@ -20,6 +20,7 @@
 - `node node_modules/typescript/bin/tsc --noEmit`로 타입을 검사한다.
 - 재고 처리 변경은 `node scripts/validate-inventory.mjs`로 검증한다.
 - 이동 경로 변경은 `node scripts/validate-navigation.mjs`로 검증한다.
+- 닉네임·공유 좌표·등산 지형 변경은 `node scripts/validate-village.mjs`로 검증한다.
 - `npm run build`로 정적 `build/` 폴더를 만든다. 이 출력은 Firebase와 클라우드 저장 버전에서 공통으로 사용한다.
 - Firebase 게시 요청을 받은 경우에만 `firebase deploy --only hosting:village --project strawberry-village --non-interactive`를 실행한다. 데이터 규칙 변경이 없으면 데이터베이스 규칙을 다시 배포하지 않는다.
 - 환경에서 브라우저를 사용할 수 있으면 실제 화면을 확인한다. 사용할 수 없으면 그 제한을 정확히 보고한다.

@@ -40,6 +40,9 @@ jobs:
       - name: Validate click navigation
         run: node scripts/validate-navigation.mjs
 
+      - name: Validate village state
+        run: node scripts/validate-village.mjs
+
       - name: Build the static site
         run: npm run build
 

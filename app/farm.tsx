@@ -28,11 +28,13 @@ const storageKey = "strawberry-garden-v1";
 export default function Farm() {
   const mount = useRef<HTMLDivElement>(null);
   const engine = useRef<FarmWorld | null>(null);
+  const villageConnection = useRef<ReturnType<typeof connectVillage> | null>(null);
   const audio = useRef<{ context: AudioContext; stop: () => void } | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const actionToken = useRef(0);
   const [showMap, setShowMap] = useState(false);
+  const [showZoomControls, setShowZoomControls] = useState(false);
   const [ready, setReady] = useState(false);
   const [worldVersion, setWorldVersion] = useState(0);
   const [bedAccess, setBedAccess] = useState<FarmAccess>({ water: false, harvest: false, sit: false, lie: false, posture: "stand", inspect: false, inspecting: false });
@@ -48,6 +50,9 @@ export default function Farm() {
   const [room, setRoom] = useState<RoomId>("outside");
   const [busy, setBusy] = useState(false);
   const [online, setOnline] = useState<number | null>(null);
+  const [nickname, setNickname] = useState("");
+  const [nicknameDraft, setNicknameDraft] = useState("");
+  const [nicknameFeedback, setNicknameFeedback] = useState("");
   const [activeDrink, setActiveDrink] = useState("");
   const [saved, setSaved] = useState<FarmSave>(blankSave);
   const [loaded, setLoaded] = useState(false);
@@ -57,6 +62,9 @@ export default function Farm() {
     try {
       const stored = JSON.parse(localStorage.getItem(storageKey) || "null");
       if (stored) setSaved(readSave(stored));
+      const drink = localStorage.getItem("strawberry-held-drink-v1");
+      if (drink && ["딸기 라떼", "딸기 우유", "딸기 차"].includes(drink)) setActiveDrink(drink);
+      setShowZoomControls(localStorage.getItem("strawberry-show-zoom-controls") === "true");
     } catch { /* A private session can still enjoy the farm. */ }
     setLoaded(true);
     setReducedMotion(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -73,6 +81,9 @@ export default function Farm() {
   useEffect(() => {
     if (loaded) try { localStorage.setItem(storageKey, JSON.stringify(saved)); } catch { /* Storage is optional. */ }
   }, [saved, loaded]);
+  useEffect(() => {
+    if (loaded) try { localStorage.setItem("strawberry-show-zoom-controls", String(showZoomControls)); } catch { /* Storage is optional. */ }
+  }, [showZoomControls, loaded]);
   useEffect(() => watchNonsanWeather((data) => { setWeather(data); setWeatherFailed(false); }, () => setWeatherFailed(true)), []);
   useEffect(() => { if (weather) engine.current?.setWeather(weather); }, [weather, ready, worldVersion]);
   useEffect(() => { engine.current?.setReducedMotion(reducedMotion); }, [reducedMotion, ready, worldVersion]);
@@ -81,8 +92,14 @@ export default function Farm() {
     const timeout = window.setTimeout(() => setMessage(""), 3800);
     return () => window.clearTimeout(timeout);
   }, [message]);
-  useEffect(() => { if (ready && engine.current) return connectVillage(engine.current, setOnline); }, [ready, worldVersion]);
+  useEffect(() => {
+    if (!ready || !engine.current) return;
+    const connection = connectVillage(engine.current, setOnline, (name) => { setNickname(name); setNicknameDraft(name); });
+    villageConnection.current = connection;
+    return () => { connection(); villageConnection.current = null; };
+  }, [ready, worldVersion]);
   useEffect(() => { engine.current?.setBasket(saved.raw.length); engine.current?.setBag(saved.boxes); }, [saved.raw.length, saved.boxes, ready, worldVersion]);
+  useEffect(() => { engine.current?.setDrink(!!activeDrink); if (loaded) try { localStorage.setItem("strawberry-held-drink-v1", activeDrink); } catch {} }, [activeDrink, ready, worldVersion, loaded]);
   useEffect(() => { engine.current?.setPaused(!!modal); }, [modal, ready, worldVersion]);
   useEffect(() => {
     if (!modal) return;
@@ -157,12 +174,16 @@ export default function Farm() {
   }
 
   function served(name: string) { setModal(null); setActiveDrink(name); engine.current?.setDrink(true); notify(`${name}를 받았어요.`); }
+  const contextActions: ("sit" | "lie" | "inspect")[] = [];
+  if (bedAccess.sit) contextActions.push("sit");
+  if (bedAccess.lie) contextActions.push("lie");
+  if (bedAccess.inspect) contextActions.push("inspect");
+  const contextKey = (action: "sit" | "lie" | "inspect") => contextActions.indexOf(action) + 3;
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
       if (modal || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
-      if (event.key === "3" && bedAccess.sit) { event.preventDefault(); engine.current?.pose("sit"); return; }
-      if (event.key === "4" && bedAccess.lie) { event.preventDefault(); engine.current?.pose("lie"); return; }
-      if (event.key === "5" && bedAccess.inspect) { event.preventDefault(); engine.current?.inspectBed(); return; }
+      const context = contextActions[Number(event.key) - 3];
+      if (context) { event.preventDefault(); if (context === "inspect") engine.current?.inspectBed(); else engine.current?.pose(context); return; }
       const action = ({ "1": "water", "2": "harvest" } as const)[event.key as "1" | "2"];
       if (action && !busy) { event.preventDefault(); void doAction(action); }
     };
@@ -183,7 +204,6 @@ export default function Farm() {
       </a>
       <div className="season-pill"><span className="live-dot" /><Users size={15} /><span>{online === null ? "마을 연결 중" : `${online}명 접속 중`}</span><span className="pill-separator" /><WeatherIcon size={15} /><span>{weather ? `${weather.description} ${weather.temperature.toFixed(1)}°` : weatherFailed ? "날씨 확인 중" : "날씨 연결 중"}</span></div>
       <div className="header-tools">
-        {room === "outside" && <button className={`icon-button ${showMap ? "is-on" : ""}`} onClick={() => setShowMap((visible) => !visible)} aria-label={showMap ? "마을 지도 숨기기" : "마을 지도 보기"} aria-expanded={showMap} aria-controls="village-map" title="마을 지도"><Compass size={19} /></button>}
         <button className={`icon-button ${sound ? "is-on" : ""}`} onClick={toggleSound} aria-label={sound ? "자연 소리 끄기" : "자연 소리 켜기"} aria-pressed={sound} title="자연 소리">{sound ? <Volume2 size={19} /> : <VolumeX size={19} />}</button>
         <button className="icon-button" onClick={() => setModal("help")} aria-label="농장 이용 안내" title="이용 안내"><HelpCircle size={19} /></button>
         <span className="tool-divider" />
@@ -192,20 +212,22 @@ export default function Farm() {
     </header>
 
     <h1 className="sr-only">온라인 딸기 농장</h1>
-    {room === "outside" && showMap && <aside id="village-map" className="village-map" aria-label="마을 둘러보기">
-      <div className="map-heading"><Compass size={16} /><strong>마을 지도</strong><button className="text-button" onClick={() => engine.current?.resetCamera()}>전체 보기</button></div>
+    {room === "outside" && <aside id="village-map" className={`village-map ${showMap ? "" : "is-minimized"}`} aria-label="마을 둘러보기">
+      {!showMap ? <button className="map-minimized-button" onClick={() => setShowMap(true)} aria-label="마을 지도 펼치기" aria-expanded={false}><Compass size={16} /><strong>마을 지도</strong><Plus size={15} /></button> : <>
+      <div className="map-heading"><Compass size={16} /><strong>마을 지도</strong><button className="icon-button map-minimize" onClick={() => setShowMap(false)} aria-label="마을 지도 최소화" aria-expanded={true} title="지도 최소화"><Minus size={16} /></button></div>
       <div className="map-art" aria-hidden="true"><div className="map-field gold" /><div className="map-houses"><i /><i /></div><div className="map-field" /><div className="map-field" /><div className="map-houses"><i /><i /></div><div className="map-cafe">카페</div><div className="map-field gold" /><div className="map-workshop">선별</div><div className="map-field gold" /><span className="map-you" /></div>
       <div className="map-legend"><span><House size={15} />딸기 하우스 4동</span><span><Package size={15} />딸기 선별장</span><span><Coffee size={15} />딸기 카페</span></div>
+      </>}
     </aside>}
 
     {room !== "outside" && <div className="room-banner"><House size={20} /><h2>{room.startsWith("house") ? "딸기 하우스" : room === "cafe" ? "딸기 카페" : "딸기 선별장"}</h2></div>}
-    {bedAccess.inspecting && <div className="inspection-title"><Search size={17} />고설 베드 살펴보기 <span>5번으로 돌아가기</span></div>}
-    <aside className="right-rail" aria-label="화면 조절">
+    {bedAccess.inspecting && <div className="inspection-title"><Search size={17} />고설 베드 살펴보기 <span>{contextKey("inspect")}번으로 돌아가기</span></div>}
+    {showZoomControls && <aside className="right-rail" aria-label="화면 조절">
       <button className="icon-button" onClick={() => engine.current?.zoom(0.82)} aria-label="농장 확대" disabled={!ready}><Plus size={18} /></button>
       <span />
       <button className="icon-button" onClick={() => engine.current?.zoom(1.22)} aria-label="농장 축소" disabled={!ready}><Minus size={18} /></button>
       <button className="icon-button reset-view" onClick={() => { engine.current?.resetCamera(); setPlace("yard"); }} aria-label="처음 시점으로" disabled={!ready}><Maximize size={16} /></button>
-    </aside>
+    </aside>}
 
     <div className="inventory-cards">
       <button className="basket-card" onClick={() => setModal("basket")} aria-label={`바구니, 딸기 ${saved.raw.length}알`}>
@@ -219,9 +241,9 @@ export default function Farm() {
       <nav className="action-dock village-dock" aria-label="농장에서 할 일">
         <button className={active === "water" ? "dock-action selected water" : "dock-action"} onClick={() => void doAction("water")} disabled={!ready || busy || !bedAccess.water} aria-pressed={active === "water"} title={bedAccess.water ? "베드에 물 주기" : "딸기 베드 가까이 이동해 주세요"}><Droplets size={23} /><span>{busy && active === "water" ? "물 주는 중" : "물 주기"}</span><i>1</i></button>
         <button className={active === "harvest" ? "dock-action selected berry" : "dock-action"} onClick={() => void doAction("harvest")} disabled={!ready || busy || !bedAccess.harvest} aria-pressed={active === "harvest"} title={bedAccess.harvest ? "가까운 딸기 수확" : "잘 익은 딸기 가까이 이동해 주세요"}><Berry size={23} /><span>{busy && active === "harvest" ? "수확 중" : "수확"}</span><i>2</i></button>
-        {bedAccess.sit && <button className="dock-action context-action" aria-keyshortcuts="3" onClick={() => engine.current?.pose("sit")}><Armchair size={23} /><span>{bedAccess.posture === "sit" ? "일어나기" : "앉기"}</span><i>3</i></button>}
-        {bedAccess.lie && <button className="dock-action context-action" aria-keyshortcuts="4" onClick={() => engine.current?.pose("lie")}><BedDouble size={23} /><span>{bedAccess.posture === "lie" ? "일어나기" : "눕기"}</span><i>4</i></button>}
-        {bedAccess.inspect && <button className="dock-action context-action" aria-keyshortcuts="5" onClick={() => engine.current?.inspectBed()}><Search size={23} /><span>{bedAccess.inspecting ? "돌아가기" : "살펴보기"}</span><i>5</i></button>}
+        {bedAccess.sit && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("sit"))} onClick={() => engine.current?.pose("sit")}><Armchair size={23} /><span>{bedAccess.posture === "sit" ? "일어나기" : "앉기"}</span><i>{contextKey("sit")}</i></button>}
+        {bedAccess.lie && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("lie"))} onClick={() => engine.current?.pose("lie")}><BedDouble size={23} /><span>{bedAccess.posture === "lie" ? "일어나기" : "눕기"}</span><i>{contextKey("lie")}</i></button>}
+        {bedAccess.inspect && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("inspect"))} onClick={() => engine.current?.inspectBed()}><Search size={23} /><span>{bedAccess.inspecting ? "돌아가기" : "살펴보기"}</span><i>{contextKey("inspect")}</i></button>}
       </nav>
       <div className="mouse-guide"><span>클릭 / 터치 <b>걷기</b></span><span>좌클릭 + 드래그 <b>화면 회전</b></span><span>우클릭 + 드래그 <b>화면 이동</b></span><span>휠 <b>확대/축소</b></span></div>
     </footer>
@@ -240,17 +262,21 @@ export default function Farm() {
         {modal === "help" && <>
           <p className="modal-intro">정해진 순서도, 해야 할 일도 없어요.<br />당신의 속도로 머물러 주세요.</p>
           <div className="help-list">
-            <div><Footprints /><span><strong>천천히 걸어요</strong><small>가고 싶은 곳을 클릭하거나 터치하면 그곳으로 걸어가요. 방향키로도 걸을 수 있어요.</small></span></div>
-            <div><Compass /><span><strong>시선을 바꿔요</strong><small>좌클릭+드래그로 화면을 회전하고, 우클릭+드래그로 화면을 옮겨요. 휠로 확대/축소해요.</small></span></div>
+            <div><Footprints /><span><strong>천천히 걸어요</strong><small>가고 싶은 곳을 클릭하거나 터치하면 그곳으로 걸어가요. 방향키로 걷고 스페이스바로 점프해요.</small></span></div>
+            <div><Compass /><span><strong>시선을 바꿔요</strong><small>모바일은 한 손가락으로 회전하고, 두 손가락으로 화면 이동과 확대·축소를 해요. 마우스는 좌클릭 드래그로 회전, 우클릭 드래그로 이동, 휠로 확대·축소해요.</small></span></div>
             <div><Droplets /><span><strong>작은 마음을 나눠요</strong><small>딸기 베드 가까이 가면 물 주기와 수확 버튼이 켜져요. 낱알은 바구니에 담겨요.</small></span></div>
             <div><Package /><span><strong>바구니를 들고 선별장으로</strong><small>선별장에 걸어 들어가면 바구니 속 딸기를 팩에 담을 수 있어요.</small></span></div>
             <div><Coffee /><span><strong>카페도 걸어서 들어가요</strong><small>딸기 카페 안의 점원에게 딸기 음료를 주문할 수 있어요.</small></span></div>
           </div>
           <div className="help-contribute"><p>당신도 딸기마을에 기여할 수 있어요.</p><a href="https://github.com/redbee-robotics/strawberry-village" target="_blank" rel="noreferrer">github.com/redbee-robotics/strawberry-village <ArrowUpRight size={14} /></a></div>
-          <button className="primary-button" onClick={() => setModal(null)}>좋아요, 천천히 둘러볼게요 <ArrowUpRight size={17} /></button>
         </>}
         {modal === "settings" && <>
+          <form className="nickname-setting" onSubmit={(event) => { event.preventDefault(); const result = villageConnection.current?.changeName(nicknameDraft); setNicknameFeedback(result?.message || "마을에 연결된 뒤 다시 변경해 주세요."); }}>
+            <label htmlFor="village-nickname">닉네임</label><div><input id="village-nickname" value={nicknameDraft} onChange={(event) => setNicknameDraft(event.target.value)} maxLength={16} autoComplete="nickname" placeholder={nickname || "닉네임"} /><button type="submit">변경</button></div>
+            {nicknameFeedback && <p role="status">{nicknameFeedback}</p>}
+          </form>
           <div className="setting-row"><span><strong>자연의 소리</strong><small>잎을 스치는 바람과 작은 새소리</small></span><button className={`switch ${sound ? "checked" : ""}`} role="switch" aria-checked={sound} aria-label="자연의 소리" onClick={toggleSound}><span /></button></div>
+          <div className="setting-row"><span><strong>확대·축소 버튼</strong><small>화면 오른쪽에 시점 조절 버튼 표시</small></span><button className={`switch ${showZoomControls ? "checked" : ""}`} role="switch" aria-checked={showZoomControls} aria-label="확대·축소 버튼" onClick={() => setShowZoomControls((shown) => !shown)}><span /></button></div>
 
           <button className="text-button reset-button" onClick={() => { engine.current?.resetCamera(); setModal(null); }}><RotateCcw size={14} />처음 시점으로 돌아가기</button>
         </>}

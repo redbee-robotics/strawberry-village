@@ -1,10 +1,11 @@
 import * as THREE from "three";
+import { groundHeight, MOUNTAIN_TRAIL } from "./terrain";
 
 export type Station = "sorting" | "packing" | "cafe";
 export type RoomId = "outside" | "cafe" | "sorting" | "house-0" | "house-1" | "house-2" | "house-3";
 export type VillageBerry = { mesh: THREE.Mesh; x: number; z: number; aisle: number; growAt: number; ready: boolean };
 type Pose = { p: number[]; s: number[]; r?: number[] };
-export const HOUSE_CENTERS = [[-4.3, -18], [4.3, -18], [-4.3, 0], [4.3, 0]];
+export const HOUSE_CENTERS = [[-5.7, -19], [5.7, -19], [-5.7, 1], [5.7, 1]];
 
 export function buildVillage(scene: THREE.Object3D) {
   const rooms: Record<string, THREE.Group> = {};
@@ -41,8 +42,31 @@ export function buildVillage(scene: THREE.Object3D) {
   }
   function station(object: THREE.Object3D, name: Station) { object.userData.station = name; interactive.push(object); }
   const ground = mesh(new THREE.CircleGeometry(170, 80), m.grass, [0, -0.08, 0]); ground.rotation.x = -Math.PI / 2; ground.castShadow = false;
+  const terrainGeometry = new THREE.PlaneGeometry(150, 150, 84, 84); terrainGeometry.rotateX(-Math.PI / 2); terrainGeometry.translate(0, 0, -20);
+  const terrainVertices = terrainGeometry.getAttribute("position"), terrainColors: number[] = [];
+  for (let i = 0; i < terrainVertices.count; i++) {
+    const height = groundHeight(terrainVertices.getX(i), terrainVertices.getZ(i)); terrainVertices.setY(i, height);
+    const color = new THREE.Color("#8ea576").lerp(new THREE.Color("#a8ad8c"), height / 22); terrainColors.push(color.r, color.g, color.b);
+  }
+  terrainGeometry.setAttribute("color", new THREE.Float32BufferAttribute(terrainColors, 3)); terrainGeometry.computeVertexNormals();
+  const terrain = mesh(terrainGeometry, standard("#ffffff", { vertexColors: true }), [0, 0, 0]); terrain.castShadow = false;
+  const trailVertices: number[] = [];
+  for (let i = 1; i < MOUNTAIN_TRAIL.length; i++) {
+    const [ax, az] = MOUNTAIN_TRAIL[i - 1], [bx, bz] = MOUNTAIN_TRAIL[i], length = Math.hypot(bx - ax, bz - az);
+    const nx = -(bz - az) / length * .95, nz = (bx - ax) / length * .95;
+    for (let step = 0; step < 16; step++) {
+      const points = [step / 16, (step + 1) / 16].flatMap((fraction) => [-1, 1].map((side) => {
+        const x = ax + (bx - ax) * fraction + nx * side, z = az + (bz - az) * fraction + nz * side;
+        return [x, groundHeight(x, z) + .025, z];
+      }));
+      for (const vertex of [0, 1, 2, 1, 3, 2]) trailVertices.push(...points[vertex]);
+    }
+  }
+  const trailGeometry = new THREE.BufferGeometry(); trailGeometry.setAttribute("position", new THREE.Float32BufferAttribute(trailVertices, 3)); trailGeometry.computeVertexNormals();
+  mesh(trailGeometry, standard("#c9b68e", { side: THREE.DoubleSide }), [0, 0, 0]);
+  label("뒷산 산책길", [0, 2.2, -31]); label("뒷산 정상", [0, 24.2, -66]);
   for (let i = 0; i < 18; i++) {
-    const x = -95 + i * 11, z = -65 - random() * 25;
+    const x = -95 + i * 11, z = -116 - random() * 22;
     const hill = ball([x, -2, z], [13 + random() * 15, 7 + random() * 12, 14 + random() * 14], standard(["#9cad8c", "#849d85", "#a0af92"][i % 3])); hill.castShadow = false;
   }
   // Connected rural lanes, with narrow irrigation channels alongside them.
@@ -95,6 +119,15 @@ export function buildVillage(scene: THREE.Object3D) {
     const leafStart = leaves.length, flowerStart = flowers.length, centerStart = centers.length, legStart = legs.length, frameStart = frameMatrices.length;
     const w = 6.8, length = 12.7, eave = 2.25, rise = 2.3;
     box([cx, 0, cz], [w, .07, length], standard("#c6c2a8"));
+    // Leave only the front doorway open. The vestibule lets visitors turn into either aisle.
+    for (const side of [-1, 1]) {
+      obstacles.push({ x: cx + side * w / 2, z: cz, w: .12, d: length });
+      const panel = mesh(new THREE.PlaneGeometry(length, eave), glass, [cx + side * w / 2, eave / 2, cz]); panel.rotation.y = Math.PI / 2; panel.castShadow = false;
+      obstacles.push({ x: cx + side * 2.2, z: cz + length / 2, w: 2.4, d: .12 });
+      const frontPanel = mesh(new THREE.PlaneGeometry(2.4, eave), glass, [cx + side * 2.2, eave / 2, cz + length / 2]); frontPanel.castShadow = false;
+    }
+    obstacles.push({ x: cx, z: cz - length / 2, w, d: .12 });
+    const backPanel = mesh(new THREE.PlaneGeometry(w, eave), glass, [cx, eave / 2, cz - length / 2]); backPanel.castShadow = false;
     const positions: number[] = [], indices: number[] = [];
     for (let j = 0; j <= 1; j++) for (let i = 0; i <= 24; i++) { const a = i / 24 * Math.PI; positions.push(cx + Math.cos(a) * w / 2, eave + Math.sin(a) * rise, cz - length / 2 + j * length); if (!j && i < 24) indices.push(i, i + 1, i + 25, i + 1, i + 26, i + 25); }
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)); geometry.setIndex(indices); geometry.computeVertexNormals(); const roof = mesh(geometry, glass, [0, 0, 0]); roof.castShadow = false;
@@ -105,11 +138,11 @@ export function buildVillage(scene: THREE.Object3D) {
     }
     for (let k = 0; k <= 4; k++) { const a = k / 4 * Math.PI, x = cx + Math.cos(a) * w / 2, y = eave + Math.sin(a) * rise; rod(new THREE.Vector3(x, y, cz - length / 2), new THREE.Vector3(x, y, cz + length / 2)); }
     for (const offset of [-2.25, 0, 2.25]) {
-      const x = cx + offset; box([x, 1.1, cz], [.8, .32, 11.8], m.white); box([x, 1.27, cz], [.66, .025, 11.7], earthMaterial);
-      obstacles.push({ x, z: cz, w: 1.05, d: 12.0 }); beds.push({ x, z: cz, w: .8, d: 11.8 });
-      for (let n = 0; n < 5; n++) for (const sign of [-1, 1]) legs.push({ p: [x + sign * .28, .5, cz - 5.4 + n * 2.7], s: [.025, 1, .025] });
+      const x = cx + offset; box([x, 1.1, cz], [.8, .32, 10.4], m.white); box([x, 1.27, cz], [.66, .025, 10.3], earthMaterial);
+      obstacles.push({ x, z: cz, w: 1.05, d: 10.6 }); beds.push({ x, z: cz, w: .8, d: 10.4 });
+      for (let n = 0; n < 5; n++) for (const sign of [-1, 1]) legs.push({ p: [x + sign * .28, .5, cz - 4.6 + n * 2.3], s: [.025, 1, .025] });
       for (let n = 0; n < 13; n++) {
-        const z = cz - 5.4 + n * .86;
+        const z = cz - 4.56 + n * .76;
         for (let l = 0; l < 4; l++) leaves.push({ p: [x, 1.43, z], s: [.68, .71, .68], r: [-.9 + random() * .2, 0, l * Math.PI / 2 + random() * .25] });
         const fx = x + .18, fz = z + .12; centers.push({ p: [fx, 1.64, fz], s: [.045, .025, .045] });
         for (let k = 0; k < 5; k++) { const a = k / 5 * Math.PI * 2; flowers.push({ p: [fx + Math.cos(a) * .07, 1.63, fz + Math.sin(a) * .07], s: [.07, .018, .045] }); }
@@ -121,7 +154,7 @@ export function buildVillage(scene: THREE.Object3D) {
     }
     const front = cz + length / 2;
     box([cx, .05, front + 1.1], [1.5, .1, 2.2], m.path);
-    box([cx, 2.65, front + .025], [2.1, .46, .09], m.wood);
+    box([cx, 2.65, front + .025], [2.1, .46, .09], m.wood).name = "house-front-sign";
     label("딸기 하우스", [cx, 5.25, cz]);
     for (const x of [cx - .8, cx + .8]) rod(new THREE.Vector3(x, .02, front), new THREE.Vector3(x, 2.5, front), 1.25);
     const matrices = frameMatrices.slice(frameStart), frames = new THREE.InstancedMesh(frameGeometry, m.white, matrices.length); matrices.forEach((matrix, i) => frames.setMatrixAt(i, matrix)); frames.castShadow = true; frames.receiveShadow = true; root.add(frames);
@@ -131,7 +164,7 @@ export function buildVillage(scene: THREE.Object3D) {
   HOUSE_CENTERS.forEach(([x, z], i) => greenhouse(x, z, i));
 
   function tree(x: number, z: number, size = 1) {
-    const group = new THREE.Group(); group.position.set(x, 0, z); group.scale.setScalar(size); scene.add(group);
+    const group = new THREE.Group(); group.position.set(x, groundHeight(x, z), z); group.scale.setScalar(size); scene.add(group);
     mesh(new THREE.CylinderGeometry(.12, .22, 3.3, 7), m.darkwood, [0, 1.65, 0], [1, 1, 1], group);
     const canopy = new THREE.Group(); group.add(canopy);
     for (let j = 0; j < 7; j++) { const a = j / 7 * Math.PI * 2; ball([Math.cos(a) * .9, 3.4 + random() * 1.2, Math.sin(a) * .85], [1.15, 1.4, 1.1], standard(j % 2 ? "#63834e" : "#81975d"), canopy); }
@@ -140,7 +173,8 @@ export function buildVillage(scene: THREE.Object3D) {
   }
   for (const [x, z, s] of [[-33, -23, 1.1], [-33, 11, 1.2], [-33, 30, 1], [33, -29, 1.1], [33, -4, 1.2], [33, 27, 1.1], [13, -29, .85], [-12, -30, 1]]) tree(x, z, s);
   for (let i = 0; i < 12; i++) tree(-55 + i * 10, -40 - random() * 5, .8 + random() * .7);
-  // A cafe on the edge of the fields, with a front terrace and a readable menu board.
+  for (const [x, z] of [[-30, -50], [28, -51], [-25, -65], [29, -70], [-13, -77], [12, -80], [-55, 33], [56, 31]]) tree(x, z, .85);
+  // A cafe on the edge of the fields, with a front terrace.
   const cafeRoot = new THREE.Group(); cafeRoot.name = "cafe"; scene.add(cafeRoot); rooms.cafe = cafeRoot; activeParent = cafeRoot;
   const cafeWall = standard("#eee3ca"), cafeRoof = standard("#5f7568"), windowMat = standard("#78978e", { metalness: .25, roughness: .18 }), awning = standard("#ad7860");
   box([21, .03, -.7], [8.2, .1, 5.8], standard("#c8b493"));
@@ -160,8 +194,6 @@ export function buildVillage(scene: THREE.Object3D) {
   for (let i = 0; i < 11; i++) if (i % 2) box([17.1 + i * .78, 3.12, 3.1], [.38, .03, 1.8], m.white);
   box([21, .08, 5.2], [10, .16, 5.0], standard("#bda784"));
   const cafeSign = label("딸기 카페", [21, 5.45, .2]); station(cafeSign, "cafe");
-  const menu = box([16.6, .95, 6.3], [1.15, 1.7, .12], m.darkwood); menu.rotation.y = -.15; station(menu, "cafe");
-  const menuLabel = label("카페 메뉴", [16.6, 1.05, 6.4]); station(menuLabel, "cafe");
   const cupMaterial = standard("#f3d3c7");
   for (const x of [19, 23]) {
     cylinder([x, .82, 5.4], [.85, .12, .85], m.wood); cylinder([x, .4, 5.4], [.07, .8, .07], m.steel);
@@ -186,6 +218,7 @@ export function buildVillage(scene: THREE.Object3D) {
   for (const x of [-3.8, 0, 3.8]) for (const dz of [-.55, .55]) box([x, .44, 20.8 + dz], [.09, .9, .09], m.steel);
   for (let i = 0; i < 7; i++) box([-3.4 + i * 1.12, 1.12, 20.8], [.85, .23, 1.1], i < 3 ? crate : standard("#d4d9ca"));
   for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) box([7.4 + j * .9, .25 + i * .5, 20.3], [.8, .45, 1.2], crate);
+  obstacles.push({ x: 8.3, z: 20.3, w: 2.6, d: 1.2 });
 
   activeParent = scene;
   // A rest stop by the outer lane.
@@ -206,5 +239,5 @@ export function buildVillage(scene: THREE.Object3D) {
     const z = -30 + i * 15; cylinder([-35.5, 3.4, z], [.09, 6.8, .09], standard("#aaa892")); box([-35.5, 6.4, z], [1.9, .09, .1], m.darkwood);
     if (i < 4) for (const dx of [-.65, .65]) { const points = []; for (let k = 0; k <= 12; k++) { const t = k / 12; points.push(new THREE.Vector3(-35.5 + dx, 6.45 - Math.sin(t * Math.PI) * .65, z + t * 15)); } scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), cableMaterial)); }
   }
-  return { obstacles, berries, beds, swaying, pondRipples, interactive, cutaways, seats, loungers, rooms, placeLabels };
+  return { obstacles, berries, beds, swaying, pondRipples, interactive, cutaways, seats, loungers, rooms, placeLabels, terrain };
 }
