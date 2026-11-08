@@ -1,0 +1,28 @@
+import fs from "node:fs";
+import assert from "node:assert/strict";
+import ts from "typescript";
+
+const source = fs.readFileSync(new URL("../app/farm-state.ts", import.meta.url), "utf8");
+const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+const { blankSave, pickedBerry, packFromBasket, spendCafeBerries, readSave } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+const state = { ...blankSave, raw: Array.from({ length: 6 }, (_, i) => pickedBerry(i)), sorted: { large: 2, regular: 3, processing: 1 }, boxes: 4, harvested: 6 };
+const ids = state.raw.slice(0, 4).map((berry) => berry.id);
+assert.equal(packFromBasket(state, ids.slice(0, 3)), null);
+assert.equal(packFromBasket(state, [ids[0], ids[0], ids[1], ids[2]]), null);
+assert.equal(packFromBasket(state, [...ids.slice(0, 3), "missing"]), null);
+const packed = packFromBasket(state, ids);
+assert.equal(packed.boxes, 5);
+assert.deepEqual(packed.raw, state.raw.slice(4));
+assert.deepEqual(packed.sorted, state.sorted);
+assert.equal(state.raw.length, 6);
+assert.equal(packFromBasket(packed, ids), null);
+assert.equal(spendCafeBerries({ ...state, raw: [], sorted: { ...state.sorted, processing: 0 } }, 1), null);
+const ordered = spendCafeBerries(state, 2);
+assert.equal(ordered.boxes, state.boxes);
+assert.equal(ordered.raw.length, 5);
+assert.equal(ordered.sorted.processing, 0);
+assert.equal(ordered.sorted.large, state.sorted.large);
+assert.equal(ordered.drinks, 1);
+assert.equal(readSave({ berries: 3, watered: -2 }).raw.length, 3);
+assert.equal(readSave({ berries: 3, watered: -2 }).watered, 0);
+console.log("Inventory validation passed: incomplete/duplicate/missing selections, atomic packing, repeat protection, cafe spending, saved-state migration.");

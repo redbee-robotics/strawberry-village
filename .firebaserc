@@ -1,0 +1,9 @@
+{
+  "projects": { "default": "strawberry-village" },
+  "targets": {
+    "strawberry-village": {
+      "hosting": { "village": ["strawberry-village"] },
+      "database": { "village": ["strawberry-village-default-rtdb"] }
+    }
+  }
+}
