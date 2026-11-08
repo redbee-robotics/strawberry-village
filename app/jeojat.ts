@@ -15,8 +15,9 @@ declare global {
 
 let cancelFrameEntry: (() => void) | undefined;
 
-// embed.js sends its first hello only once. If the parent module is still
-// loading, that message is lost. Give it one more chance after SDK readiness.
+// embed.js skips hello when it can restore a cached account. That account may
+// differ from the one signed into the parent. Synchronize with the parent, and
+// give a hello lost while its module was loading one more chance.
 // The parent owns consent and the SDK owns tokens; never open a login popup here.
 export function prepareJeojatFrameEntry() {
   cancelFrameEntry?.();
@@ -36,20 +37,26 @@ export function prepareJeojatFrameEntry() {
     if (!active || !sdk || sdk.site !== "pYUoDazk7y" || subscribed === sdk) return;
     subscribed = sdk;
     window.clearTimeout(timer);
+    let ready = false;
     const end = () => { if (subscribed === sdk) stop(); };
     sdk.on("login", end);
-    sdk.on("logout", end);
+    // A rejected cached token emits logout during initialization. The SDK then
+    // sends hello; keep its retry available until initialization has finished.
+    sdk.on("logout", () => { if (ready) end(); });
     void Promise.resolve(sdk.ready).then(() => {
       if (!active || subscribed !== sdk) return;
-      if (sdk.user) { stop(); return; }
+      ready = true;
+      const hello = () => window.parent.postMessage({ type: "jeojat:hello", site: sdk.site }, "https://jeojat.altolab.ai");
+      // Wait for cached-token validation to finish before asking the parent:
+      // a late validation response must not overwrite the new account.
+      const cached = !!sdk.user;
+      if (cached) hello();
       // No acknowledgement is sent for a consent offer. Retry only once,
       // rather than polling and repeatedly reopening a dismissed offer.
       timer = window.setTimeout(() => {
-        if (active && window.jeojat === sdk && !sdk.user) {
-          window.parent.postMessage({ type: "jeojat:hello", site: sdk.site }, "https://jeojat.altolab.ai");
-        }
+        if (active && window.jeojat === sdk) hello();
         stop();
-      }, 3000);
+      }, cached ? 5500 : 3000); // Cached readiness skips the SDK's 2.5s handshake wait.
     }, () => { if (subscribed === sdk) stop(); });
   };
   cancelFrameEntry = stop;

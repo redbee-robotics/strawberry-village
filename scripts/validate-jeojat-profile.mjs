@@ -93,9 +93,6 @@ try {
     assert.equal(messages.length, 1, `${event} cancels the pending automatic greeting`);
     stop();
   }
-  window.jeojat = frameSdk({ user: { uid: "existing", nick: "이미 연결됨" } });
-  stop = prepareJeojatFrameEntry(); await flush(); advance(3000);
-  assert.equal(messages.length, 1, "An already connected account does not need another consent offer"); stop();
   window.jeojat = frameSdk(); stop = prepareJeojatFrameEntry(); await flush(); stop(); advance(3000);
   assert.equal(messages.length, 1, "Unmount cancels the pending greeting");
   stop = prepareJeojatFrameEntry(); await flush(); window.dispatchEvent(new Event("pagehide")); advance(3000);
@@ -109,11 +106,29 @@ try {
   window.jeojat = frameSdk({ site: "another-site" });
   stop = prepareJeojatFrameEntry(); await flush(); advance(3000);
   assert.equal(messages.length, 1, "Other SDK site IDs cannot initiate frame entry"); stop();
+
+  window.jeojat = frameSdk({ user: { uid: "previous", nick: "이전 계정" }, ready: new Promise(resolve => { frameReady = resolve; }) });
+  stop = prepareJeojatFrameEntry(); advance(10000);
+  assert.equal(messages.length, 1, "Wait for cached-token validation before a parent response can replace the account");
+  frameReady(); await flush();
+  assert.equal(messages.length, 2, "A cached account still requests the current parent account");
+  window.jeojat.user = { uid: "current", nick: "현재 계정" }; window.jeojat.emit("login"); advance(10000);
+  assert.equal(messages.length, 2, "A confirmed parent login cancels the retry even when it restored the same account"); stop();
+  window.jeojat = frameSdk({ user: { uid: "previous", nick: "이전 계정" } });
+  stop = prepareJeojatFrameEntry(); await flush();
+  assert.equal(messages.length, 3);
+  advance(5499); assert.equal(messages.length, 3, "Allow a slow parent to finish loading even with immediately ready cached credentials");
+  advance(1); assert.equal(messages.length, 4, "Retry the cached-account greeting once when the parent has not returned a login");
+  advance(10000); assert.equal(messages.length, 4); stop();
+  window.jeojat = frameSdk({ ready: new Promise(resolve => { frameReady = resolve; }) });
+  stop = prepareJeojatFrameEntry(); window.jeojat.emit("logout"); frameReady(); await flush(); advance(3000);
+  assert.equal(messages.length, 5, "Invalidating a cached token during SDK initialization must not cancel the hello retry"); stop();
+  assert.ok(messages.every(([message, target]) => message.type === "jeojat:hello" && message.site === "pYUoDazk7y" && target === "https://jeojat.altolab.ai"), "Every account refresh stays within the trusted parent protocol");
   window.jeojat = frameSdk(); window.top = window;
   stop = prepareJeojatFrameEntry(); await flush(); advance(3000);
-  assert.equal(messages.length, 1, "Standalone visits never trigger automatic entry"); stop();
+  assert.equal(messages.length, 5, "Standalone visits never trigger automatic entry"); stop();
   assert.equal(timers.size, 0);
-  console.log("Jeojat profile validation passed: SDK readiness/events, one delayed iframe greeting, exact target origin, lifecycle/login cancellation, standalone behavior, nickname migration and denied-storage fallback.");
+  console.log("Jeojat profile validation passed: SDK readiness/events, cached-account refresh, invalid-token recovery, bounded iframe greeting retries, exact target origin, lifecycle/login cancellation, standalone behavior, nickname migration and denied-storage fallback.");
 } finally {
   stop?.();
   for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }
