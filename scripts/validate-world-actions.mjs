@@ -130,6 +130,36 @@ try {
   world.pose("lie"); tick(); world.dispose();
   world = createFarmWorld(new Element(), () => {}, () => {}, () => {}); tick();
   assert.equal(world.getPose().action, "lie", "Ground resting survives reconnecting");
+  world.dispose();
+  for (const saved of [
+    { x: 0, z: 9, room: "outside" },
+    { x: -4.6, z: 0, room: "house-2" },
+    { x: 21, z: 0.5, room: "cafe" },
+    { x: 0, z: 19, room: "sorting" },
+  ]) {
+    storage.set("strawberry-world-position-v2", JSON.stringify({ version: 2, ...saved, angle: Math.PI, posture: "stand", cameraMode: "follow", cafeLayout: 2, sortingLayout: 1, view: { yaw: Math.PI, pitch: -0.5, distance: 8 } }));
+    const returnHost = new Element();
+    world = createFarmWorld(returnHost, () => {}, () => {}, () => {}); tick();
+    assert.equal(world.getPose().x, saved.x); assert.equal(world.getPose().z, saved.z); assert.equal(world.getPose().room, saved.room);
+    send(returnHost.children[0], "keydown", { key: "ArrowUp", code: "ArrowUp" }); tick(80);
+    send(window, "keyup", { key: "ArrowUp" });
+    const lastPose = world.getPose();
+    assert.notEqual(lastPose.z, saved.z, "The farmer actually moved before leaving");
+    const persisted = JSON.parse(storage.get("strawberry-world-position-v2"));
+    assert.equal(persisted.z, lastPose.z, "Stopping saves the final step without waiting for the periodic save or pagehide");
+    send(window, "pagehide", {}); world.dispose();
+    world = createFarmWorld(new Element(), () => {}, () => {}, () => {}); tick();
+    assert.deepEqual(world.getPose(), lastPose, "Reopening restores the last position, room and heading");
+    world.dispose();
+  }
+  const accountPosition = world.getSavedPosition(), accountPose = world.getPose();
+  globalThis.localStorage = { getItem() { throw new Error("Iframe storage denied"); }, setItem() { throw new Error("Iframe storage denied"); } };
+  world = createFarmWorld(new Element(), () => {}, () => {}, () => {}); tick();
+  assert.equal(JSON.parse(world.getSavedPosition()).updatedAt, 0, "The default spawn must not look newer than an existing account save");
+  assert.equal(world.restoreSavedPosition(accountPosition), true); tick();
+  assert.deepEqual(world.getPose(), accountPose, "Account saves restore even when localStorage is unavailable");
+  assert.equal(world.restoreSavedPosition("not-json"), false);
+  assert.deepEqual(world.getPose(), accountPose, "An invalid account save cannot move the farmer");
   console.log("World action validation passed: visible character, anchored drag, drink animation, cancellation, one-time consumption, reduced motion, presence compatibility and disposal.");
 } catch (error) {
   console.error(error.message); process.exitCode = 1;

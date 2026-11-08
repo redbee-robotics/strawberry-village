@@ -26,6 +26,8 @@ export type FarmWorld = {
   setName: (name: string) => void;
   getTestNeighbor: () => RemotePlayer | null;
   getPose: () => { x: number; z: number; angle: number; action: string; basket: number; room: RoomId };
+  getSavedPosition: () => string;
+  restoreSavedPosition: (value: string) => boolean;
   setPlayers: (players: RemotePlayer[]) => void;
   nearbyVisitors: () => { id: string; name: string }[];
   setLocalSpeech: (text: string) => void;
@@ -354,24 +356,32 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       e.preventDefault(); cancel(); if (inspecting) stopInspecting(); if (posture !== "stand") standUp(); pressed.add(e.key.toLowerCase());
     }
   }
-  const keyUp = (e: KeyboardEvent) => pressed.delete(e.key.toLowerCase());
-  const clearKeys = () => { pressed.clear(); stopWalking(); tap = null; pointers.clear(); };
+  const keyUp = (e: KeyboardEvent) => { if (pressed.delete(e.key.toLowerCase())) savePosition(); };
+  const clearKeys = () => { pressed.clear(); stopWalking(); tap = null; pointers.clear(); savePosition(); };
   const positionKey = "strawberry-world-position-v2";
-  let lastPositionSave = 0, lastPositionJson = "";
-  function savePosition() {
+  let lastPositionSave = 0, lastPositionJson = "", lastStoredPosition = "", positionUpdatedAt = 0, wasMoving = false;
+  function positionJson() {
     const point = poseExit || farmer.position;
-    const value = JSON.stringify({ version: 2, x: point.x, z: point.z, angle: farmer.rotation.y, room: activeRoom, posture, groundRest, cameraMode: "follow", cafeLayout: 2, sortingLayout: 1, view: inspectView || view });
-    if (value === lastPositionJson) return;
-    try { localStorage.setItem(positionKey, value); lastPositionJson = value; } catch { /* Storage can be unavailable. */ }
+    return JSON.stringify({ version: 2, x: point.x, z: point.z, angle: farmer.rotation.y, room: activeRoom, posture, groundRest, cameraMode: "follow", cafeLayout: 2, sortingLayout: 1, view: inspectView || view });
   }
-  function restorePosition() {
+  function savePosition() {
+    const value = positionJson();
+    if (value !== lastPositionJson) { lastPositionJson = value; positionUpdatedAt = Date.now(); }
+    const stored = JSON.stringify({ ...JSON.parse(value), updatedAt: positionUpdatedAt });
+    if (stored !== lastStoredPosition) {
+      try { localStorage.setItem(positionKey, stored); lastStoredPosition = stored; } catch { /* Jeojat can save the position when iframe storage is blocked. */ }
+    }
+    return stored;
+  }
+  function restorePosition(value?: string) {
     try {
-      const saved = JSON.parse(localStorage.getItem(positionKey) || "null");
-      if (!saved || saved.version !== 2 || ![saved.x, saved.z, saved.angle].every(Number.isFinite)) return;
-      if (saved.x <= MAP_BOUNDS.minX || saved.x >= MAP_BOUNDS.maxX || saved.z <= MAP_BOUNDS.minZ || saved.z >= MAP_BOUNDS.maxZ) return;
+      const saved = JSON.parse(value ?? localStorage.getItem(positionKey) ?? "null");
+      if (!saved || saved.version !== 2 || ![saved.x, saved.z, saved.angle].every(Number.isFinite)) return false;
+      if (saved.x <= MAP_BOUNDS.minX || saved.x >= MAP_BOUNDS.maxX || saved.z <= MAP_BOUNDS.minZ || saved.z >= MAP_BOUNDS.maxZ) return false;
       const savedNavigation = saved.room === "cafe" ? cafeNavigation : outsideNavigation;
       const point = savedNavigation.isWalkable(saved) ? saved : savedNavigation.findPath(saved.room === "cafe" ? CAFE_ENTRY : { x: 0, z: 9 }, saved).at(-1);
-      if (!point) return;
+      if (!point) return false;
+      cancel(); pressed.clear(); standUp(); jumpHeight = jumpSpeed = 0;
       farmer.position.set(point.x, groundHeight(point.x, point.z), point.z); farmer.rotation.y = saved.angle;
       const area = buildingAreas.find((building) => Math.abs(point.x - building.x) < building.w / 2 && Math.abs(point.z - building.z) < building.d / 2);
       setRoom(saved.room === "cafe" ? "cafe" : area?.room || "outside", true);
@@ -384,7 +394,10 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
         if (saved.posture === "lie" && saved.groundRest) { poseExit = farmer.position.clone(); posture = "lie"; groundRest = true; }
         else if (spot) { poseExit = farmer.position.clone(); farmer.position.set(spot.x, 0, spot.z); farmer.rotation.y = spot.angle; posture = saved.posture; }
       }
-    } catch { /* A corrupt saved position falls back to the yard. */ }
+      lastPositionJson = positionJson();
+      positionUpdatedAt = Number.isFinite(saved.updatedAt) && saved.updatedAt > 0 ? saved.updatedAt : 0;
+      return true;
+    } catch { return false; }
   }
   const saveOnHide = () => { if (document.hidden) savePosition(); };
   renderer.domElement.addEventListener("wheel", wheel, { passive: false });
@@ -400,6 +413,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   renderer.domElement.style.cursor = "pointer";
   function resize() { const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); updateCamera(); }
   const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(host); resize(); restorePosition(); updateCamera();
+  if (!lastPositionJson) lastPositionJson = positionJson();
   function tick(now: number) {
     if (disposed) return;
     const dt = Math.min((now - previousTime) / 1000, 0.12); previousTime = now; const t = now / 1000;
@@ -503,7 +517,8 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       }); precipitationGeometry.attributes.position.needsUpdate = true;
     }
     updateCamera(); renderer.render(activeScene, camera); labels.update(activeRoom === "outside"); visitorLabels.update(activeScene, (object) => object !== clerk.object || activeRoom === "cafe");
-    if (now - lastPositionSave > 1000) { savePosition(); lastPositionSave = now; }
+    if ((wasMoving && !moving) || now - lastPositionSave > 250) { savePosition(); lastPositionSave = now; }
+    wasMoving = moving;
     animationFrame = requestAnimationFrame(tick);
   }
   animationFrame = requestAnimationFrame(tick);
@@ -550,6 +565,8 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       return null;
     },
     getPose() { return { x: farmer.position.x, z: farmer.position.z, angle: farmer.rotation.y, action: posture !== "stand" ? posture : paused ? zoneLatched || "walk" : (currentAction?.type === "drink" ? "cafe" : currentAction?.type) || "walk", basket: basketCount, room: activeRoom }; },
+    getSavedPosition: savePosition,
+    restoreSavedPosition(value) { const restored = restorePosition(value); if (restored) { updateCamera(); savePosition(); } return restored; },
     nearbyVisitors() { return [...remotePeople].filter(([, remote]) => canHear({ x: farmer.position.x, z: farmer.position.z, room: activeRoom }, { x: remote.target.x, z: remote.target.z, room: remote.room })).sort(([, a], [, b]) => a.target.distanceTo(farmer.position) - b.target.distanceTo(farmer.position)).map(([id, remote]) => ({ id, name: remote.name })); },
     setLocalSpeech(text) { visitorLabels.setSpeech(farmer, text); },
     setPlayers(players) {

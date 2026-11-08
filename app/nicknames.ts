@@ -1,5 +1,32 @@
 export const suggestedNicknames = ["햇살 한 줌", "느긋한 딸기", "초록빛 산책", "달콤한 바람", "이슬 맺힌 새싹", "작은 들꽃", "포근한 구름", "딸기향 오후", "산들바람", "아침 이슬", "싱그러운 잎새", "고요한 숲길", "반짝이는 열매", "초록 모자", "따뜻한 햇볕", "딸기 한 알", "풀잎 위 이슬", "가벼운 발걸음", "노을빛 마당", "반가운 봄비", "수줍은 새싹", "바람 속 들꽃", "열매 맺는 하루", "봄을 기다리는 씨앗"] as const;
 export const cleanNickname = (name: string) => name.normalize("NFKC").trim().replace(/\s+/g, " ");
+
+const nicknameStorageKey = "strawberry-farmer-name-v2";
+export function rememberedNickname() {
+  for (const [storage, key] of [
+    [() => localStorage, nicknameStorageKey],
+    [() => sessionStorage, nicknameStorageKey],
+    [() => sessionStorage, "strawberry-farmer-name-v1"],
+  ] as const) {
+    try {
+      let name = storage().getItem(key);
+      if (!name) continue;
+      if (key.endsWith("v1")) {
+        const base = name.replace(/ \d+$/, "");
+        if (suggestedNicknames.some((candidate) => candidate === base)) name = base;
+      }
+      name = cleanNickname(name);
+      if (name && name.length <= 16) return name;
+    } catch { /* Try the next store when browser storage is unavailable. */ }
+  }
+  return null;
+}
+
+export function rememberNickname(name: string) {
+  try { localStorage.setItem(nicknameStorageKey, name); } catch { /* Private browsers may only allow session storage. */ }
+  try { sessionStorage.setItem(nicknameStorageKey, name); } catch { /* The farm can also run without storage. */ }
+}
+
 export function unusedNickname(preferred: string, taken: Set<string>) {
   const base = cleanNickname(preferred).slice(0, 16) || "산들바람";
   const available = (name: string) => !taken.has(name.toLowerCase());

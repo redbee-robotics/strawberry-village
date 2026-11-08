@@ -1,9 +1,10 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
-import { browserSessionPersistence, getAuth, initializeAuth, signInAnonymously } from "firebase/auth";
+import { browserLocalPersistence, browserSessionPersistence, getAuth, initializeAuth, signInAnonymously } from "firebase/auth";
 import { getDatabase, onDisconnect, onValue, ref, remove, serverTimestamp, set, type DatabaseReference } from "firebase/database";
 import { firebaseConfig } from "./firebase-config";
 import type { FarmWorld, RemotePlayer } from "./world";
-import { cleanNickname, nicknameChoice, sessionNicknames, suggestedNicknames, unusedNickname } from "./nicknames";
+import { cleanNickname, nicknameChoice, rememberedNickname, rememberNickname, sessionNicknames, suggestedNicknames, unusedNickname } from "./nicknames";
+import { connectJeojatFarmer } from "./jeojat-farmer";
 import { canHear, cleanSpeech, hasTestNeighbor, MAX_SPEECH_LENGTH, readSpeech, type Speech, type Conversation, type ConversationMessage } from "./chat";
 import { HOUSE_CENTERS } from "./locations";
 import { decodePosition, encodePosition } from "./presence-pose";
@@ -12,27 +13,17 @@ import { activeVillagePlayers, villagePresencePaths, type VillagePlayers } from 
 export function connectVillage(world: FarmWorld, onStatus: (total: number | null) => void, onName: (name: string) => void = () => {}, onConversation: (state: Conversation) => void = () => {}) {
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   let auth;
-  try { auth = initializeAuth(app, { persistence: browserSessionPersistence }); } catch { auth = getAuth(app); }
+  try { auth = initializeAuth(app, { persistence: [browserLocalPersistence, browserSessionPersistence] }); } catch { auth = getAuth(app); }
   const database = getDatabase(app);
   const { players: playersPath, speech: speechPath } = villagePresencePaths(window.location.hostname);
   const previewNeighbor = hasTestNeighbor(window.location.hostname, window.location.pathname || "");
-  const nicknameStorageKey = "strawberry-farmer-name-v2";
   // Normalize versioned wire coordinates to fit the existing database's numeric limits.
   const session = `v2-${Date.now()}-${crypto.randomUUID()}`;
 
-  let name: string = suggestedNicknames[Math.floor(Math.random() * suggestedNicknames.length)];
-  try {
-    let remembered = sessionStorage.getItem(nicknameStorageKey);
-    if (!remembered) {
-      remembered = sessionStorage.getItem("strawberry-farmer-name-v1");
-      if (remembered) {
-        const oldBase = remembered.replace(/ \d+$/, "");
-        if (oldBase !== remembered && suggestedNicknames.some((candidate) => candidate === oldBase)) remembered = oldBase;
-      }
-    }
-    if (remembered && cleanNickname(remembered) && remembered.length <= 16) name = remembered;
-    sessionStorage.setItem(nicknameStorageKey, name);
-  } catch { /* The farm also works when session storage is unavailable. */ }
+  const remembered = rememberedNickname();
+  let name: string = remembered || suggestedNicknames[Math.floor(Math.random() * suggestedNicknames.length)];
+  let nameChosen = !!remembered;
+  rememberNickname(name);
   world.setName(name);
   onName(name);
   let disposed = false, present = true, connected = false, sending = false, published = false, readable = false, lastSent = 0, lastPose = "", offset = 0, retryAfter = 0;
@@ -53,21 +44,37 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
   let latestPlayers: VillagePlayers = {};
   const unsubscribe: (() => void)[] = [];
 
+  function updateName(next: string) {
+    name = next; lastPose = "";
+    rememberNickname(name); world.setName(name); onName(name);
+  }
+  unsubscribe.push(connectJeojatFarmer(world, (user) => {
+    if (disposed) return;
+    const next = cleanNickname(user.nick);
+    if (!next || next.length > 16) return;
+    nameChosen = true;
+    updateName(next);
+    void publish(true);
+  }));
+
   function renderPlayers() {
     if (disposed) return;
     const now = Date.now() + offset;
     const players = activeVillagePlayers(latestPlayers, now).map((player) => player.id === session ? { ...player, name } : player);
-    const assigned = sessionNicknames(players);
-    const taken = new Set([...assigned].filter(([id]) => id !== session).map(([, value]) => value.toLowerCase()));
-    const nextName = assigned.get(session) || unusedNickname(name, taken);
-    if (name !== nextName) { name = nextName; world.setName(name); onName(name); lastPose = ""; try { sessionStorage.setItem(nicknameStorageKey, name); } catch {} }
+    // Pick an available name once for a new guest. A returning farmer or a
+    // Jeojat account keeps their name even while an old session is still live.
+    if (readable && !nameChosen) {
+      const taken = new Set(players.filter((player) => player.id !== session).map((player) => player.name.toLowerCase()));
+      const nextName = sessionNicknames(players).get(session) || unusedNickname(name, taken);
+      if (nextName !== name) updateName(nextName);
+    }
     const pose = world.getPose();
     const remotes: RemotePlayer[] = players.filter((player) => player.id !== session).map((player) => {
       const point = decodePosition(player.id, player.x, player.z);
       const extraHouse = HOUSE_CENTERS.findIndex(([x, z], index) => index >= 4 && Math.abs(point.x - x) < 3.4 && Math.abs(point.z - z) < 6.35);
       const room = extraHouse >= 4 && player.room === "outside" ? `house-${extraHouse}` as RemotePlayer["room"] : player.room;
       const speech = canHear(pose, { ...point, room }) ? readSpeech(latestSpeech[player.uid]?.[player.id], now) : null;
-      const displayName = assigned.get(player.id) || player.name;
+      const displayName = player.name;
       if (speech) heard.set(`${player.id}-${speech.createdAt}`, { ...speech, id: player.id, name: displayName, self: false });
       return { ...player, ...point, room, name: displayName, speech: speech?.text || "" };
     });
@@ -93,14 +100,16 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
   async function publish(force = false) {
     if (disposed || !present || !connected || !disconnectReady || !readable || !ownRef || sending || Date.now() < retryAfter) return;
     const pose = world.getPose();
-    const compact = JSON.stringify({ ...pose, ...encodePosition(pose.x, pose.z), room: pose.room === "house-4" || pose.room === "house-5" ? "outside" : pose.room, angle: Math.round(pose.angle * 100) / 100 });
+    const compact = JSON.stringify({ name, ...pose, ...encodePosition(pose.x, pose.z), room: pose.room === "house-4" || pose.room === "house-5" ? "outside" : pose.room, angle: Math.round(pose.angle * 100) / 100 });
     const now = Date.now();
     if (!force && compact === lastPose && now - lastSent < 5000) return;
     sending = true;
     try {
       await set(ownRef, { id: session, name, ...JSON.parse(compact), updatedAt: serverTimestamp() });
       if (disposed || !present) { await remove(ownRef); return; }
-      lastPose = compact; lastSent = now; published = true; renderPlayers();
+      lastPose = compact; lastSent = now; published = true;
+      if (JSON.parse(compact).name === name) nameChosen = true;
+      renderPlayers();
     } catch { if (!disposed) { published = false; retryAfter = Date.now() + 5000; reportStatus(null); } }
     finally { sending = false; }
   }
@@ -145,11 +154,11 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
     if (!desired || desired.length > 16) return { ok: false, message: "닉네임은 1~16자로 입력해 주세요." };
     if (!connected || !readable || disposed || !present) return { ok: false, message: "마을에 연결된 뒤 다시 변경해 주세요." };
     const active = activeVillagePlayers(latestPlayers, Date.now() + offset).filter((player) => player.id !== session);
-    const taken = new Set([...sessionNicknames(active).values()].map((value) => value.toLowerCase()));
+    const taken = new Set(active.map((player) => player.name.toLowerCase()));
     const choice = nicknameChoice(desired, taken);
     if (!choice.ok) return choice;
-    name = desired; lastPose = ""; world.setName(name); onName(name);
-    try { sessionStorage.setItem(nicknameStorageKey, name); } catch {}
+    nameChosen = true;
+    updateName(desired);
     void publish(true);
     return { ok: true, message: "닉네임을 변경했어요." };
   };
