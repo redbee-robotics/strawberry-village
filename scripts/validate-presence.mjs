@@ -19,8 +19,8 @@ const bindings = {
   getDatabase: () => ({}), ref: (_, path) => path,
   onValue: (path, callback) => { const listener = { path, callback }; listeners.add(listener); callback({ val: () => path === ".info/connected" ? true : path === ".info/serverTimeOffset" ? 0 : structuredClone(read(path)) }); return () => listeners.delete(listener); },
   onDisconnect: () => ({ remove: async () => {} }),
-  serverTimestamp: () => now,
-  set: async (path, value) => { if (pauseSpeech && path.includes("/speech/")) await new Promise(resolve => { completeSpeech = resolve; }); write(path, value); emit(path); }, remove: async (path) => { write(path, null); emit(path); },
+  serverTimestamp: () => ({ ".sv": "timestamp" }),
+  set: async (path, value) => { if (pauseSpeech && path.includes("/speech/")) await new Promise(resolve => { completeSpeech = resolve; }); const resolveTimes = (time) => Object.fromEntries(Object.entries(value).map(([key, item]) => [key, item?.[".sv"] === "timestamp" ? time : item])); write(path, resolveTimes(now - 40)); emit(path); await Promise.resolve(); write(path, resolveTimes(now)); emit(path); }, remove: async (path) => { write(path, null); emit(path); },
   firebaseConfig: {}, ...names, ...chat, ...poses, ...locations, ...presence,
 };
 globalThis.window = { location: { hostname: "localhost" }, setInterval: (callback) => { timers.set(++timerIndex, callback); return timerIndex; }, clearInterval: (id) => timers.delete(id), setTimeout: () => ++timerIndex, clearTimeout: () => {}, addEventListener: () => {}, removeEventListener: () => {} };
@@ -43,9 +43,12 @@ try {
   assert.equal(connections[1].changeName("새로운 별빛").ok, true); await flush();
   assert.equal((await connections[0].say("안녕하세요!")).ok, true); await flush();
   assert.ok(worlds.every((state) => state.conversation.messages.some((message) => message.text === "안녕하세요!")));
+  assert.ok(worlds.every((state) => state.conversation.messages.filter((message) => message.text === "안녕하세요!").length === 1), "Optimistic and acknowledged speech must produce one line");
   assert.equal(worlds[0].speech, "안녕하세요!");
   assert.ok(worlds[1].remotes.some((remote) => remote.speech === "안녕하세요!"));
   assert.equal((await connections[0].say("너무 빠른 메시지")).ok, false);
+  now += 1100; assert.equal((await connections[0].say("안녕하세요!")).ok, true); await flush();
+  assert.ok(worlds.every((state) => state.conversation.messages.filter((message) => message.text === "안녕하세요!").length === 2), "An intentional repeated message remains a separate line");
   worlds[2].pose.x = 50; for (const tick of [...timers.values()]) tick(); await flush();
   assert.equal((await connections[2].say("멀리서 전송")).ok, false);
   now += 1100; assert.equal((await connections[0].say("가까운 이웃에게만")).ok, true); await flush();
@@ -76,5 +79,20 @@ try {
   assert.ok(completeSpeech); connections[0](); pauseSpeech = false; completeSpeech();
   assert.equal((await pendingSpeech).ok, false); await flush();
   assert.deepEqual(Object.keys(read(`${presence.villagePresencePaths("localhost").speech}/visitor-1`) || {}), []);
-  console.log("Presence integration passed with simulated Firebase transport: unique names, rename rejection, group speech, distance/room filtering, cooldown, bubble expiry, disconnect cleanup, legacy exclusion and production/development player and speech isolation.");
+  for (const stop of connections) stop(); await flush();
+  window.location.hostname = "strawberry-garden.example.chatgpt.site"; window.location.pathname = "/dev/";
+  const preview = world(0);
+  preview.getTestNeighbor = () => ({ id: "preview-test-neighbor", name: "테스트 이웃", x: preview.pose.x + 1, z: preview.pose.z, angle: 0, action: "walk", basket: 0, room: preview.pose.room });
+  const previewConnection = connect(preview, (count) => preview.count = count, (name) => preview.name = name, (state) => preview.conversation = state);
+  connections.push(previewConnection); await flush();
+  assert.equal(preview.count, 1, "The test neighbor is not a real online session");
+  assert.equal(preview.remotes.length, 1); assert.equal(preview.remotes[0].name, "테스트 이웃");
+  assert.equal((await previewConnection.say("말풍선 테스트")).ok, true); await flush();
+  assert.equal(preview.speech, "말풍선 테스트");
+  assert.equal(preview.conversation.messages.filter((message) => message.self).length, 1);
+  assert.equal(preview.conversation.messages.filter((message) => !message.self).length, 1);
+  assert.ok(preview.remotes[0].speech.includes("테스트 이웃"));
+  now += chat.SPEECH_LIFETIME + 2; for (const tick of [...timers.values()]) tick(); await flush();
+  assert.equal(preview.speech, ""); assert.equal(preview.remotes[0].speech, "");
+  console.log("Presence integration passed with simulated Firebase transport: unique names, rename rejection, single optimistic/acknowledged messages, intentional repeats, preview-only test neighbor, group speech, distance/room filtering, cooldown, bubble expiry, disconnect cleanup, legacy exclusion and production/development player and speech isolation.");
 } finally { for (const stop of connections) stop(); Date.now = originalNow; delete globalThis.window; delete globalThis.document; delete globalThis.sessionStorage; }

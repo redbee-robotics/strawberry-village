@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { followForward, followFrame, readFollowView, turnFollowView, zoomFollowView, constrainFollowEye, type FollowView, type CameraBounds } from "./follow-camera";
 import { buildVillage, HOUSE_CENTERS, type Station, type RoomId } from "./village";
+import { buildCafeRoom, CAFE_ROOM_BOUNDS, CAFE_ENTRY, CAFE_EXIT } from "./cafe-room";
 import type { VillageWeather } from "./weather";
 import { createNavigation, type GroundPoint } from "./navigation";
 import { createPlaceLabels } from "./place-labels";
@@ -8,14 +9,14 @@ import { createVisitorLabels } from "./visitor-labels";
 import { canHear } from "./chat";
 import { groundHeight, MAP_BOUNDS } from "./terrain";
 
-export type FarmAction = "walk" | "water" | "harvest";
+export type FarmAction = "walk" | "water" | "harvest" | "drink";
 export type FarmPlace = "yard" | "greenhouse" | Station;
 export type RemotePlayer = { id: string; name: string; x: number; z: number; angle: number; action: string; basket: number; room?: RoomId; speech?: string };
 export type FarmAccess = { water: boolean; harvest: boolean; sit: boolean; lie: boolean; posture: "stand" | "sit" | "lie"; inspect: boolean; inspecting: boolean };
 type Outcome = "done" | "empty" | "cancelled" | "far";
 export type FarmWorld = {
   dispose: () => void;
-  perform: (action: "water" | "harvest") => Promise<Outcome>;
+  perform: (action: "water" | "harvest" | "drink") => Promise<Outcome>;
   cancel: () => void;
   pose: (posture: "sit" | "lie") => void;
   setBasket: (count: number) => void;
@@ -23,6 +24,7 @@ export type FarmWorld = {
   setDrink: (value: boolean) => void;
   setPaused: (value: boolean) => void;
   setName: (name: string) => void;
+  getTestNeighbor: () => RemotePlayer | null;
   getPose: () => { x: number; z: number; angle: number; action: string; basket: number; room: RoomId };
   setPlayers: (players: RemotePlayer[]) => void;
   nearbyVisitors: () => { id: string; name: string }[];
@@ -48,19 +50,12 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.03;
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute("aria-label", "3D 딸기 농장. 클릭하거나 터치한 곳으로 걷기. 방향키로도 걷기. 한 손가락 드래그로 화면 이동, 두 손가락 드래그로 화면 회전, 핀치로 확대와 축소. 마우스는 좌클릭 드래그로 화면 이동, 우클릭 드래그로 화면 회전, 휠로 확대와 축소.");
+  renderer.domElement.setAttribute("aria-label", "캐릭터를 따라가는 가까운 3인칭 딸기 농장. 바닥을 클릭하거나 터치한 곳으로 걷기. 방향키로 걷기, 스페이스바로 점프. 마우스 또는 손가락 드래그로 캐릭터 주위를 회전. 휠이나 핀치로 가까운 범위에서 확대와 축소.");
   renderer.domElement.setAttribute("role", "application");
   host.appendChild(renderer.domElement);
 
-  const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 180);
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true; controls.dampingFactor = 0.07;
-  controls.enablePan = true; controls.screenSpacePanning = true; controls.panSpeed = .85; controls.zoomSpeed = .85;
-  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
-  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }; controls.minDistance = 10; controls.maxDistance = 145;
-  controls.minPolarAngle = 0.25; controls.maxPolarAngle = 1.42;
-  controls.target.set(0, 0.9, 0);
-  camera.position.set(62, 49, 67);
+  const camera = new THREE.PerspectiveCamera(78, 1, 0.06, 240);
+  let view = readFollowView();
   const hemi = new THREE.HemisphereLight("#fcf8ec", "#708466", 2.1); scene.add(hemi);
   const sunlight = new THREE.DirectionalLight("#fff1d9", 3.0);
   sunlight.position.set(-34, 65, 24); sunlight.castShadow = true;
@@ -89,8 +84,19 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     overall: material("#627b59"), hair: material("#574b3a"), hat: material("#ddc48d"),
   };
   const worldRoot = new THREE.Group(); scene.add(worldRoot);
-  const { obstacles, berries, beds, swaying, pondRipples, interactive, cutaways, seats, loungers, rooms, placeLabels, terrain } = buildVillage(worldRoot);
-  const navigation = createNavigation(obstacles, MAP_BOUNDS);
+  const { obstacles, berries, beds, swaying, pondRipples, seats, loungers, rooms, cafeInterior, cafeExteriorDoor, placeLabels, terrain } = buildVillage(worldRoot);
+  const cafeRoom = buildCafeRoom();
+  const outsideNavigation = createNavigation(obstacles, MAP_BOUNDS);
+  const cafeNavigation = createNavigation(cafeRoom.obstacles, { ...CAFE_ROOM_BOUNDS, maxZ: 10 });
+  let navigation = outsideNavigation;
+  const cameraBlockers: { object: THREE.Object3D; bounds: CameraBounds }[] = [];
+  const addCameraBlocker = (object: THREE.Object3D) => {
+    if (!(object instanceof THREE.Mesh) || object instanceof THREE.InstancedMesh) return;
+    if (!["BoxGeometry", "ExtrudeGeometry"].includes(object.geometry.type)) return;
+    if ((Array.isArray(object.material) ? object.material : [object.material]).some((m) => m.transparent)) return;
+    cameraBlockers.push({ object, bounds: new THREE.Box3().setFromObject(object) });
+  };
+  for (const root of [worldRoot, cafeRoom.root]) { root.updateMatrixWorld(true); root.traverse(addCameraBlocker); }
   const buildingAreas = [
     ...HOUSE_CENTERS.map(([x, z], index) => ({ room: `house-${index}` as RoomId, x, z, w: 6.8, d: 12.7 })),
     { room: "cafe" as RoomId, x: 21, z: -.7, w: 8.4, d: 6.3 },
@@ -111,8 +117,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     roomScenes[id] = roomScene;
   });
   let activeRoom: RoomId = "outside", activeScene = scene;
-  let outsideView: { position: THREE.Vector3; target: THREE.Vector3; fov: number } | null = null;
-  let inspecting = false, inspectView: { position: THREE.Vector3; target: THREE.Vector3; min: number; max: number } | null = null;
+  let inspecting = false, inspectView: FollowView | null = null;
 
   function mesh(geo: THREE.BufferGeometry, m: THREE.Material, p: number[], s = [1, 1, 1], parent: THREE.Object3D = scene) {
     const object = new THREE.Mesh(geo, m); object.position.set(p[0], p[1], p[2]); object.scale.set(s[0], s[1], s[2]);
@@ -132,7 +137,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     batch.castShadow = true; batch.receiveShadow = true; parent.add(batch); return batch;
   }
   // A small farmer made from rounded, tactile forms.
-  const farmer = new THREE.Group(); farmer.position.set(0, 0, 9); farmer.scale.setScalar(1.15); farmer.rotation.y = 0.3; scene.add(farmer);
+  const farmer = new THREE.Group(); farmer.position.set(0, 0, 9); farmer.scale.setScalar(1.15); farmer.rotation.y = Math.PI; farmer.visible = true; scene.add(farmer);
   const postureGroup = new THREE.Group(); postureGroup.name = "posture"; farmer.add(postureGroup);
   const body = new THREE.Group(); postureGroup.add(body);
   ball([0, 0.91, 0], [0.28, 0.35, 0.2], mat.shirt, body);
@@ -182,7 +187,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     return { object, clothes };
   }
   // The counter attendant is the only fictional person. Visitors are live sessions.
-  const clerk = person("카페 점원", "#907557"); clerk.object.position.set(21, 0, -2.55); clerk.object.rotation.y = 0;
+  const clerk = person("카페 점원", "#907557"); clerk.object.position.set(21, 0, -9); clerk.object.rotation.y = 0; clerk.object.visible = false;
   const remotePeople = new Map<string, ReturnType<typeof person> & { target: THREE.Vector3; angle: number; action: string; name: string; room: RoomId }>();
   let basketCount = 0, drinkHeld = false, paused = false, zoneLatched: Station | null = null;
   const dustGeo = new THREE.BufferGeometry(), dust = new Float32Array(65 * 3);
@@ -199,20 +204,19 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   const rain = new THREE.LineSegments(precipitationGeometry, new THREE.LineBasicMaterial({ color: "#d4e7eb", transparent: true, opacity: .5 })); rain.visible = false; scene.add(rain);
   const snow = new THREE.Points(precipitationGeometry, new THREE.PointsMaterial({ color: "#f2f6ed", size: .11, transparent: true, opacity: .85 })); snow.visible = false; scene.add(snow);
   let reducedMotion = false, animationFrame = 0, previousTime = performance.now(), disposed = false;
-  let cameraTransition: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
-  let currentAction: { type: "water" | "harvest"; resolve: (value: Outcome) => void; berry?: typeof berries[number]; phase: "walking" | "acting"; time: number } | null = null;
+  let currentAction: { type: "water" | "harvest" | "drink"; resolve: (value: Outcome) => void; berry?: typeof berries[number]; phase: "walking" | "acting"; time: number } | null = null;
   let markerTime = 0;
   let walkPath: GroundPoint[] = [];
   let jumpHeight = 0, jumpSpeed = 0;
   let tap: { id: number; x: number; y: number; moved: boolean } | null = null;
-  const pointers = new Set<number>();
+  const pointers = new Map<number, { x: number; y: number }>();
   const raycaster = new THREE.Raycaster(), groundPlane = new THREE.Plane(up, 0);
   const pressed = new Set<string>();
   let lastBedAccess: FarmAccess = { water: false, harvest: false, sit: false, lie: false, posture: "stand", inspect: false, inspecting: false };
   let posture: "stand" | "sit" | "lie" = "stand";
   let poseExit: THREE.Vector3 | null = null;
-  const nearestSeat = () => seats.find((seat) => Math.hypot(seat.x - farmer.position.x, seat.z - farmer.position.z) < 1.6);
-  const nearestLounger = () => loungers.find((space) => Math.hypot(space.x - farmer.position.x, space.z - farmer.position.z) < 3.0);
+  const nearestSeat = () => (activeRoom === "cafe" ? cafeRoom.seats : seats).find((seat) => Math.hypot(seat.x - farmer.position.x, seat.z - farmer.position.z) < 1.6);
+  const nearestLounger = () => activeRoom === "cafe" ? undefined : loungers.find((space) => Math.hypot(space.x - farmer.position.x, space.z - farmer.position.z) < 3.0);
   function standUp() { posture = "stand"; postureGroup.rotation.x = 0; postureGroup.position.set(0, 0, 0); if (poseExit) { farmer.position.copy(poseExit); poseExit = null; } }
   const nearBed = () => activeRoom.startsWith("house-") && beds.some((bed) => Math.hypot(Math.max(0, Math.abs(farmer.position.x - bed.x) - bed.w / 2), Math.max(0, Math.abs(farmer.position.z - bed.z) - bed.d / 2)) < 1.15);
   const nearRipe = () => activeRoom.startsWith("house-") && berries.some((berry) => berry.ready && Math.hypot(berry.x - farmer.position.x, berry.z - farmer.position.z) < 1.8);
@@ -220,61 +224,98 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     return navigation.isWalkable({ x, z });
   }
   function stopWalking() { walkPath = []; marker.visible = false; }
-  function cancel() { stopWalking(); currentAction?.resolve("cancelled"); currentAction = null; spray.visible = false; can.visible = false; }
-  function transition(position: THREE.Vector3, target: THREE.Vector3) {
-    if (reducedMotion) { camera.position.copy(position); controls.target.copy(target); controls.update(); }
-    else cameraTransition = { position, target };
+  function cancel() { stopWalking(); currentAction?.resolve("cancelled"); currentAction = null; spray.visible = false; can.visible = false; arms[1].rotation.z = 0.16; cup.rotation.x = 0; }
+  function updateCamera() {
+    const frame = followFrame(farmer.position, posture, view, host.clientWidth < 640, activeRoom === "cafe" ? "cafe" : activeRoom !== "outside");
+    const visibleBounds = cameraBlockers.filter(({ object }) => {
+      for (let parent: THREE.Object3D | null = object; parent; parent = parent.parent) {
+        if (!parent.visible) return false;
+        if (parent === activeScene) return true;
+      }
+      return false;
+    }).map(({ bounds }) => bounds);
+    if (activeRoom === "cafe") visibleBounds.push(cafeRoom.cameraBoundary);
+    const { target, fov } = frame;
+    const eye = constrainFollowEye(target, frame.eye, visibleBounds, activeRoom === "outside" ? groundHeight : undefined);
+    camera.position.set(eye.x, eye.y, eye.z);
+    camera.lookAt(target.x, target.y, target.z);
+    if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
   }
-  function resetCamera() { if (inspecting) stopInspecting(); if (activeRoom !== "outside") { roomCamera(activeRoom); controls.update(); } else transition(new THREE.Vector3(62, 49, 67), new THREE.Vector3(0, 0.9, 0)); }
-  const onControlStart = () => { cameraTransition = null; };
-  controls.addEventListener("start", onControlStart);
+  function resetCamera() { stopInspecting(); view = readFollowView(); updateCamera(); }
   function stopInspecting() {
     inspecting = false;
-    if (inspectView) { camera.position.copy(inspectView.position); controls.target.copy(inspectView.target); controls.minDistance = inspectView.min; controls.maxDistance = inspectView.max; controls.update(); inspectView = null; }
+    if (inspectView) { view = inspectView; inspectView = null; }
   }
-  function viewAngle(room: RoomId) {
-    const mobile = host.clientWidth < 640;
-    return room === "cafe" ? (mobile ? 90 : 82) : room === "sorting" ? (mobile ? 80 : 72) : room.startsWith("house") ? (mobile ? 86 : 78) : mobile ? 64 : 40;
-  }
-  function roomCamera(room: RoomId) {
-    camera.fov = viewAngle(room); camera.updateProjectionMatrix();
-    if (room === "cafe") { camera.position.set(17.3, 3.05, 2.15); controls.target.set(21.3, 1, -1); }
-    else if (room === "sorting") { camera.position.set(-5.1, 3.05, 22.4); controls.target.set(0, 1.15, 19.2); }
-    else { const [x, z] = HOUSE_CENTERS[Number(room.slice(6))]; camera.position.set(x + 1.2, 6.8, z + 12.8); controls.target.set(x + 1.1, 1.1, z - 1.7); }
-  }
-  function setRoom(next: RoomId) {
+  function setRoom(next: RoomId, restoring = false) {
     if (next === activeRoom) return;
-    stopInspecting(); cameraTransition = null;
-    if (activeRoom !== "outside") { worldRoot.add(rooms[activeRoom]); const sign = rooms[activeRoom].getObjectByName("house-front-sign"); if (sign) sign.visible = true; }
-    if (activeRoom === "outside") outsideView = { position: camera.position.clone(), target: controls.target.clone(), fov: camera.fov };
+    stopInspecting();
+    const previous = activeRoom;
+    if (activeRoom === "cafe") cafeRoom.root.removeFromParent();
+    else if (activeRoom !== "outside") { worldRoot.add(rooms[activeRoom]); const sign = rooms[activeRoom].getObjectByName("house-front-sign"); if (sign) sign.visible = true; }
     activeRoom = next; activeScene = next === "outside" ? scene : roomScenes[next]; activeScene.add(farmer);
-    if (next === "outside") {
-      controls.minDistance = 10; controls.maxDistance = 145; controls.maxPolarAngle = 1.42;
-      if (outsideView) { camera.position.copy(outsideView.position); controls.target.copy(outsideView.target); camera.fov = outsideView.fov; camera.updateProjectionMatrix(); outsideView = null; }
-    } else { activeScene.add(rooms[next]); const sign = rooms[next].getObjectByName("house-front-sign"); if (sign) sign.visible = false; controls.minDistance = .6; controls.maxDistance = next.startsWith("house") ? 24 : 10; controls.maxPolarAngle = 1.7; roomCamera(next); }
+    navigation = next === "cafe" ? cafeNavigation : outsideNavigation;
+    if (next !== "outside") { activeScene.add(next === "cafe" ? cafeRoom.root : rooms[next]); const sign = rooms[next].getObjectByName("house-front-sign"); if (sign) sign.visible = false; }
+    // The exterior stays sealed; the larger room exists only in the interior scene.
+    cafeInterior.visible = false; cafeExteriorDoor.visible = true;
+    if (!restoring && (next === "cafe" || previous === "cafe")) {
+      const goal = walkPath.at(-1); stopWalking();
+      const point = next === "cafe" ? CAFE_ENTRY : CAFE_EXIT;
+      farmer.position.set(point.x, 0, point.z); jumpHeight = jumpSpeed = 0;
+      if (next === "cafe") {
+        view = readFollowView({ ...view, distance: Math.max(8, view.distance) });
+        if (goal && goal.z < 1.5) walkPath = cafeNavigation.findPath(point, { x: 21 + (goal.x - 21) * 2, z: -5 });
+      }
+    }
+    clerk.object.visible = next === "cafe";
     (next === "cafe" ? activeScene : scene).add(clerk.object);
     remotePeople.forEach((remote) => { (remote.room === next ? activeScene : scene).add(remote.object); remote.object.visible = remote.room === next; });
-    controls.update(); onRoomChange(next);
+    updateCamera(); onRoomChange(next);
   }
   function pointerDown(event: PointerEvent) {
-    pointers.add(event.pointerId);
-    if (!paused) renderer.domElement.focus({ preventScroll: true });
-    if (pointers.size !== 1 || event.button !== 0 || !event.isPrimary || paused) { tap = null; return; }
-    tap = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+    if (paused || (event.pointerType === "mouse" && event.button !== 0 && event.button !== 2)) return;
+    renderer.domElement.focus({ preventScroll: true });
+    renderer.domElement.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    tap = pointers.size === 1 && event.button === 0 && event.isPrimary ? { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false } : null;
   }
   function pointerMove(event: PointerEvent) {
-    if (tap?.id === event.pointerId && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 8) tap.moved = true;
+    const previous = pointers.get(event.pointerId);
+    if (!previous || paused) return;
+    const before = [...pointers.values()];
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 1) {
+      if (tap?.id === event.pointerId && !tap.moved) {
+        if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) <= 8) return;
+        tap.moved = true;
+      }
+      stopWalking();
+      view = turnFollowView(view, event.clientX - previous.x, event.clientY - previous.y);
+    } else if (pointers.size === 2) {
+      tap = null; stopWalking();
+      const after = [...pointers.values()];
+      const oldDistance = Math.hypot(before[0].x - before[1].x, before[0].y - before[1].y);
+      const newDistance = Math.hypot(after[0].x - after[1].x, after[0].y - after[1].y);
+      if (oldDistance > 0 && newDistance > 0) view = zoomFollowView(view, oldDistance / newDistance);
+      view = turnFollowView(view, (event.clientX - previous.x) / 2, (event.clientY - previous.y) / 2);
+    }
+    updateCamera();
   }
+  const wheel = (event: WheelEvent) => {
+    event.preventDefault();
+    if (!paused) { view = zoomFollowView(view, Math.exp(Math.max(-100, Math.min(100, event.deltaY)) * 0.002)); updateCamera(); }
+  };
+  const contextMenu = (event: MouseEvent) => event.preventDefault();
   function pointerUp(event: PointerEvent) {
     const click = tap;
     pointers.delete(event.pointerId); tap = null;
+    if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
     if (!click || click.id !== event.pointerId || click.moved || paused || event.button !== 0
       || Math.hypot(event.clientX - click.x, event.clientY - click.y) > 8) return;
     const rect = renderer.domElement.getBoundingClientRect();
     if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return;
     raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1), camera);
     const destination = (activeRoom === "outside" ? raycaster.intersectObject(terrain)[0]?.point : null) || raycaster.ray.intersectPlane(groundPlane, new THREE.Vector3());
-    if (!destination) return;
+    if (!destination || camera.position.distanceTo(destination) > 100) return;
     walkTo(destination);
   }
   function walkTo(destination: GroundPoint) {
@@ -283,7 +324,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     cancel(); pressed.clear(); if (inspecting) stopInspecting(); if (posture !== "stand") standUp();
     const targetRoom = buildingAreas.find((area) => Math.abs(destination.x - area.x) < area.w / 2 && Math.abs(destination.z - area.z) < area.d / 2)?.room;
     const blockedRooms = buildingAreas.filter((area) => area.room !== activeRoom && area.room !== targetRoom);
-    walkPath = createNavigation([...obstacles, ...blockedRooms], MAP_BOUNDS).findPath(farmer.position, destination);
+    walkPath = (activeRoom === "cafe" ? cafeNavigation : createNavigation([...obstacles, ...blockedRooms], MAP_BOUNDS)).findPath(farmer.position, destination);
     const goal = walkPath.at(-1);
     if (goal) {
       marker.position.set(goal.x, (activeRoom === "outside" ? groundHeight(goal.x, goal.z) : 0) + .08, goal.z); activeScene.add(marker);
@@ -308,7 +349,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   let lastPositionSave = 0, lastPositionJson = "";
   function savePosition() {
     const point = poseExit || farmer.position;
-    const value = JSON.stringify({ version: 2, x: point.x, z: point.z, angle: farmer.rotation.y, room: activeRoom, posture, camera: camera.position.toArray(), target: controls.target.toArray() });
+    const value = JSON.stringify({ version: 2, x: point.x, z: point.z, angle: farmer.rotation.y, room: activeRoom, posture, cameraMode: "follow", cafeLayout: 2, view: inspectView || view });
     if (value === lastPositionJson) return;
     try { localStorage.setItem(positionKey, value); lastPositionJson = value; } catch { /* Storage can be unavailable. */ }
   }
@@ -317,13 +358,15 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       const saved = JSON.parse(localStorage.getItem(positionKey) || "null");
       if (!saved || saved.version !== 2 || ![saved.x, saved.z, saved.angle].every(Number.isFinite)) return;
       if (saved.x <= MAP_BOUNDS.minX || saved.x >= MAP_BOUNDS.maxX || saved.z <= MAP_BOUNDS.minZ || saved.z >= MAP_BOUNDS.maxZ) return;
-      const point = navigation.isWalkable(saved) ? saved : navigation.findPath({ x: 0, z: 9 }, saved).at(-1);
+      const savedNavigation = saved.room === "cafe" ? cafeNavigation : outsideNavigation;
+      const point = savedNavigation.isWalkable(saved) ? saved : savedNavigation.findPath(saved.room === "cafe" ? CAFE_ENTRY : { x: 0, z: 9 }, saved).at(-1);
       if (!point) return;
       farmer.position.set(point.x, groundHeight(point.x, point.z), point.z); farmer.rotation.y = saved.angle;
       const area = buildingAreas.find((building) => Math.abs(point.x - building.x) < building.w / 2 && Math.abs(point.z - building.z) < building.d / 2);
-      setRoom(area?.room || "outside");
-      const validView = (value: unknown): value is number[] => Array.isArray(value) && value.length === 3 && value.every((coordinate) => Number.isFinite(coordinate) && Math.abs(coordinate) < 500);
-      if (validView(saved.camera) && validView(saved.target)) { camera.position.fromArray(saved.camera); controls.target.fromArray(saved.target); controls.update(); }
+      setRoom(saved.room === "cafe" ? "cafe" : area?.room || "outside", true);
+      // Keep the saved location and heading, but reset the previous camera mode to a close orbit.
+      view = readFollowView(saved.cameraMode === "follow" ? saved.view : { yaw: saved.view?.yaw ?? saved.angle });
+      if (activeRoom === "cafe" && saved.cafeLayout !== 2) view = readFollowView({ ...view, distance: Math.max(8, view.distance) });
       if (saved.posture === "sit" || saved.posture === "lie") {
         const spot = saved.posture === "sit" ? nearestSeat() : nearestLounger();
         if (spot) { poseExit = farmer.position.clone(); farmer.position.set(spot.x, 0, spot.z); farmer.rotation.y = spot.angle; posture = saved.posture; }
@@ -331,6 +374,8 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     } catch { /* A corrupt saved position falls back to the yard. */ }
   }
   const saveOnHide = () => { if (document.hidden) savePosition(); };
+  renderer.domElement.addEventListener("wheel", wheel, { passive: false });
+  renderer.domElement.addEventListener("contextmenu", contextMenu);
   renderer.domElement.addEventListener("pointerdown", pointerDown);
   renderer.domElement.addEventListener("pointermove", pointerMove);
   renderer.domElement.addEventListener("pointerup", pointerUp);
@@ -340,19 +385,15 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   window.addEventListener("keyup", keyUp); window.addEventListener("blur", clearKeys);
   window.addEventListener("pagehide", savePosition); document.addEventListener("visibilitychange", saveOnHide);
   renderer.domElement.style.cursor = "pointer";
-  function resize() { const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.fov = viewAngle(activeRoom); camera.updateProjectionMatrix(); }
-  const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(host); resize(); restorePosition();
+  function resize() { const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); updateCamera(); }
+  const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(host); resize(); restorePosition(); updateCamera();
   function tick(now: number) {
     if (disposed) return;
     const dt = Math.min((now - previousTime) / 1000, 0.12); previousTime = now; const t = now / 1000;
-    if (cameraTransition) {
-      const rate = 1 - Math.pow(0.03, dt); camera.position.lerp(cameraTransition.position, rate); controls.target.lerp(cameraTransition.target, rate);
-      if (camera.position.distanceTo(cameraTransition.position) < 0.03) cameraTransition = null;
-    }
     let moving = false;
     const keyboard = new THREE.Vector3();
     if (!paused && pressed.size) {
-      const forward = controls.target.clone().sub(camera.position); forward.y = 0; forward.normalize(); const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+      const heading = followForward(view), forward = new THREE.Vector3(heading.x, 0, heading.z), right = new THREE.Vector3().crossVectors(forward, up);
       if (pressed.has("arrowup")) keyboard.add(forward);
       if (pressed.has("arrowdown")) keyboard.sub(forward);
       if (pressed.has("arrowright")) keyboard.add(right);
@@ -374,13 +415,10 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       jumpSpeed -= 18 * dt; jumpHeight = Math.max(0, jumpHeight + jumpSpeed * dt); if (!jumpHeight) jumpSpeed = 0;
     }
     farmer.position.y = (activeRoom === "outside" ? groundHeight(farmer.position.x, farmer.position.z) : 0) + jumpHeight;
-    if (activeRoom === "outside" && moving && (Math.abs(farmer.position.x) > 32 || farmer.position.z < -30 || farmer.position.z > 32)) {
-      const shift = farmer.position.clone().add(new THREE.Vector3(0, 1, 0)).sub(controls.target).multiplyScalar(Math.min(1, dt * 2));
-      camera.position.add(shift); controls.target.add(shift);
-    }
     const swing = moving ? Math.sin(t * 12) * 0.48 : 0;
     legs[0].rotation.x = swing; legs[1].rotation.x = -swing; arms[0].rotation.x = -swing * 0.65; arms[1].rotation.x = swing * 0.65;
     body.position.y = moving && !reducedMotion ? Math.abs(Math.sin(t * 12)) * 0.055 : 0;
+    arms[1].rotation.z = 0.16; cup.rotation.x = 0;
     if (posture === "sit") { legs[0].rotation.x = legs[1].rotation.x = -1.3; body.position.y = -.08; }
     if (posture === "lie") { postureGroup.rotation.x = -Math.PI / 2; postureGroup.position.set(0, .85, .8); }
     if (!paused && currentAction) {
@@ -399,25 +437,30 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
           waterPositions[i * 3] = p.x + Math.sin(i * 12.7) * f * 0.15; waterPositions[i * 3 + 1] = p.y; waterPositions[i * 3 + 2] = p.z + Math.cos(i * 8.1) * f * 0.15;
         }
         waterGeo.attributes.position.needsUpdate = true;
+      } else if (currentAction.type === "drink") {
+        const lift = reducedMotion ? 1 : Math.min(1, elapsed / 350, Math.max(0, (1800 - elapsed) / 300));
+        arms[1].rotation.x = -1.8 * lift; arms[1].rotation.z = 0.16 + 0.44 * lift;
+        cup.rotation.x = 1.5 * lift;
       } else { arms[0].rotation.x = -1.0; arms[1].rotation.x = -0.8; }
-      if (elapsed > (currentAction.type === "water" ? 2100 : 1150)) {
+      if (elapsed > (currentAction.type === "drink" ? 1800 : currentAction.type === "water" ? 2100 : 1150)) {
         if (currentAction.type === "harvest" && currentAction.berry) { currentAction.berry.ready = false; currentAction.berry.mesh.visible = false; }
         if (currentAction.type === "water") berries.forEach((b) => { if (!b.ready && !b.growAt) b.growAt = now + 6000; });
+        if (currentAction.type === "drink") { drinkHeld = false; cup.rotation.x = 0; }
         currentAction.resolve("done"); currentAction = null; spray.visible = false; can.visible = false; arms[1].rotation.z = 0.16;
       }
     }
     if (activeRoom === "outside") {
-      if (Math.abs(farmer.position.x - 21) < 3.8 && farmer.position.z > -3.35 && farmer.position.z < 2.2) setRoom("cafe");
+      if (Math.abs(farmer.position.x - 21) < 3.8 && farmer.position.z > -3.35 && farmer.position.z < 2.4) setRoom("cafe");
       else if (Math.abs(farmer.position.x) < 5.7 && farmer.position.z > 16.7 && farmer.position.z < 22.8) setRoom("sorting");
       else { const house = HOUSE_CENTERS.findIndex(([x, z]) => Math.abs(farmer.position.x - x) < 3.25 && Math.abs(farmer.position.z - z) < 6.2); if (house >= 0) setRoom(`house-${house}` as RoomId); }
     } else if (activeRoom === "cafe") {
-      if (farmer.position.z > 3.0 || Math.abs(farmer.position.x - 21) > 4.5 || farmer.position.z < -4) setRoom("outside");
+      if (farmer.position.z > 9.35) setRoom("outside");
     } else if (activeRoom === "sorting") {
       if (farmer.position.z < 15.9 || farmer.position.z > 23.7 || Math.abs(farmer.position.x) > 6.7) setRoom("outside");
     } else { const [x, z] = HOUSE_CENTERS[Number(activeRoom.slice(6))]; if (Math.abs(farmer.position.x - x) > 3.9 || Math.abs(farmer.position.z - z) > 7.0) setRoom("outside"); }
     const access: FarmAccess = { water: posture === "stand" && nearBed(), harvest: posture === "stand" && nearBed() && nearRipe(), sit: posture === "sit" || (posture === "stand" && !!nearestSeat()), lie: posture === "lie" || (posture === "stand" && !!nearestLounger()), posture, inspect: posture === "stand" && nearBed(), inspecting };
     if (Object.keys(access).some((key) => access[key as keyof FarmAccess] !== lastBedAccess[key as keyof FarmAccess])) { lastBedAccess = access; onBedAccess(access); }
-    const zone: Station | null = Math.abs(farmer.position.x) < 5.6 && farmer.position.z > 17 && farmer.position.z < 22.95 ? "sorting" : Math.abs(farmer.position.x - 21) < 3.4 && farmer.position.z > -.5 && farmer.position.z < .7 ? "cafe" : null;
+    const zone: Station | null = activeRoom === "sorting" && Math.abs(farmer.position.x) < 5.6 && farmer.position.z > 17 && farmer.position.z < 22.95 ? "sorting" : activeRoom === "cafe" && Math.abs(farmer.position.x - 21) < 4.3 && farmer.position.z > -6 && farmer.position.z < -3.5 ? "cafe" : null;
     if (!zone) zoneLatched = null;
     if (!paused && !currentAction && zone && zone !== zoneLatched) { zoneLatched = zone; pressed.clear(); stopWalking(); onStation(zone); }
     basket.visible = basketCount > 0; basketFruits.forEach((fruit, i) => fruit.visible = i < Math.min(basketCount, 6)); cup.visible = drinkHeld && currentAction?.type !== "water";
@@ -446,7 +489,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
         precipitationPositions[i * 6 + 3] = x + (snowing ? .025 : windSpeed * .03); precipitationPositions[i * 6 + 4] = y + (snowing ? .025 : .65); precipitationPositions[i * 6 + 5] = drop.z;
       }); precipitationGeometry.attributes.position.needsUpdate = true;
     }
-    controls.update(); renderer.render(activeScene, camera); labels.update(activeRoom === "outside"); visitorLabels.update(activeScene, (object) => object !== clerk.object || activeRoom === "cafe");
+    updateCamera(); renderer.render(activeScene, camera); labels.update(activeRoom === "outside"); visitorLabels.update(activeScene, (object) => object !== clerk.object || activeRoom === "cafe");
     if (now - lastPositionSave > 1000) { savePosition(); lastPositionSave = now; }
     animationFrame = requestAnimationFrame(tick);
   }
@@ -454,7 +497,13 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
 
   return {
     perform(type) {
-      cancel(); 
+      cancel(); pressed.clear();
+      if (type === "drink") {
+        if (!drinkHeld) return Promise.resolve("empty");
+        if (posture === "lie") standUp();
+        if (inspecting) stopInspecting();
+        return new Promise<Outcome>((resolve) => { currentAction = { type, resolve, phase: "acting", time: performance.now() }; });
+      }
       const candidates = berries.filter((b) => type === "water" || b.ready).sort((a, b) => Math.hypot(a.x - farmer.position.x, a.z - farmer.position.z) - Math.hypot(b.x - farmer.position.x, b.z - farmer.position.z));
       const berry = candidates[0]; if (!berry) return Promise.resolve("empty");
       if (posture !== "stand" || !nearBed() || (type === "harvest" && Math.hypot(berry.x - farmer.position.x, berry.z - farmer.position.z) >= 1.8)) return Promise.resolve("far");
@@ -470,9 +519,19 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     setBasket(count) { basketCount = count; },
     setBag(count) { packed.visible = count > 0; },
     setDrink(value) { drinkHeld = value; },
-    setPaused(value) { paused = value; if (value) clearKeys(); },
+    setPaused(value) { paused = value; if (value) { clearKeys(); if (currentAction?.type === "drink") cancel(); } },
     setName(name) { visitorLabels.setName(farmer, name); },
-    getPose() { return { x: farmer.position.x, z: farmer.position.z, angle: farmer.rotation.y, action: posture !== "stand" ? posture : paused ? zoneLatched || "walk" : currentAction?.type || "walk", basket: basketCount, room: activeRoom }; },
+    getTestNeighbor() {
+      for (const radius of [2.4, 1.7, 1.1]) for (const offset of [0.7, -0.7, 1.5, -1.5, 0, Math.PI]) {
+        const angle = view.yaw + offset, x = farmer.position.x + Math.sin(angle) * radius, z = farmer.position.z + Math.cos(angle) * radius;
+        const area = buildingAreas.find((building) => Math.abs(x - building.x) < building.w / 2 && Math.abs(z - building.z) < building.d / 2);
+        if ((activeRoom === "cafe" ? z > 8.5 : (area?.room || "outside") !== activeRoom) || !valid(x, z)) continue;
+        if (Array.from({ length: 10 }, (_, i) => (i + 1) / 10).some((t) => !valid(farmer.position.x + (x - farmer.position.x) * t, farmer.position.z + (z - farmer.position.z) * t))) continue;
+        return { id: "preview-test-neighbor", name: "테스트 이웃", x, z, angle: angle + Math.PI, action: "walk", basket: 0, room: activeRoom };
+      }
+      return null;
+    },
+    getPose() { return { x: farmer.position.x, z: farmer.position.z, angle: farmer.rotation.y, action: posture !== "stand" ? posture : paused ? zoneLatched || "walk" : (currentAction?.type === "drink" ? "cafe" : currentAction?.type) || "walk", basket: basketCount, room: activeRoom }; },
     nearbyVisitors() { return [...remotePeople].filter(([, remote]) => canHear({ x: farmer.position.x, z: farmer.position.z, room: activeRoom }, { x: remote.target.x, z: remote.target.z, room: remote.room })).sort(([, a], [, b]) => a.target.distanceTo(farmer.position) - b.target.distanceTo(farmer.position)).map(([id, remote]) => ({ id, name: remote.name })); },
     setLocalSpeech(text) { visitorLabels.setSpeech(farmer, text); },
     setPlayers(players) {
@@ -494,8 +553,10 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       if (!nearBed()) return;
       stopWalking();
       const bed = [...beds].sort((a, b) => Math.hypot(a.x - farmer.position.x, a.z - farmer.position.z) - Math.hypot(b.x - farmer.position.x, b.z - farmer.position.z))[0];
-      inspectView = { position: camera.position.clone(), target: controls.target.clone(), min: controls.minDistance, max: controls.maxDistance }; inspecting = true; controls.minDistance = .7; controls.maxDistance = 7;
-      const side = farmer.position.x >= bed.x ? 1 : -1; camera.position.set(bed.x + side * 1.8, 2.3, farmer.position.z + 1.1); controls.target.set(bed.x, 1.5, farmer.position.z); controls.update();
+      inspectView = { ...view }; inspecting = true;
+      const dx = bed.x - farmer.position.x, dz = bed.z - farmer.position.z;
+      view = readFollowView({ yaw: Math.atan2(dx, dz), pitch: -0.55, distance: 3 });
+      updateCamera();
     },
     setWeather(weather) {
       const night = weather.phase === "night", sunset = weather.phase === "sunset", cloud = weather.cloud / 100;
@@ -506,16 +567,17 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       (scene.fog as THREE.FogExp2).color.set(night ? "#657781" : weather.precipitation > 0 ? "#a4b3b4" : sunset ? "#e1d5bd" : "#e1e9d8");
       Object.entries(roomScenes).forEach(([id, room]) => { if (id.startsWith("house")) (room.background as THREE.Color).set(night ? "#5c6d75" : "#d8dfd1"); });
     },
-    setReducedMotion(value) { reducedMotion = value; controls.enableDamping = !value; if (value) swaying.forEach((s) => s.mesh.rotation.z = s.origin); },
-    zoom(factor) { const offset = camera.position.clone().sub(controls.target); const distance = THREE.MathUtils.clamp(offset.length() * factor, controls.minDistance, controls.maxDistance); camera.position.copy(controls.target).add(offset.normalize().multiplyScalar(distance)); controls.update(); },
+    setReducedMotion(value) { reducedMotion = value; if (value) swaying.forEach((s) => s.mesh.rotation.z = s.origin); },
+    zoom(factor) { view = zoomFollowView(view, factor); updateCamera(); },
     resetCamera,
     dispose() {
-      savePosition(); disposed = true; cancel(); cancelAnimationFrame(animationFrame); resizeObserver.disconnect(); controls.dispose(); labels.dispose(); visitorLabels.dispose();
+      savePosition(); disposed = true; cancel(); cancelAnimationFrame(animationFrame); resizeObserver.disconnect(); labels.dispose(); visitorLabels.dispose();
+      renderer.domElement.removeEventListener("wheel", wheel); renderer.domElement.removeEventListener("contextmenu", contextMenu);
       renderer.domElement.removeEventListener("pointerdown", pointerDown); renderer.domElement.removeEventListener("pointermove", pointerMove); renderer.domElement.removeEventListener("pointerup", pointerUp); renderer.domElement.removeEventListener("pointercancel", clearKeys); renderer.domElement.removeEventListener("keydown", keyDown); renderer.domElement.removeEventListener("blur", clearKeys);
       window.removeEventListener("keyup", keyUp); window.removeEventListener("blur", clearKeys);
       window.removeEventListener("pagehide", savePosition); document.removeEventListener("visibilitychange", saveOnHide);
       const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
-      [scene, ...Object.values(roomScenes)].forEach((root) => root.traverse((object) => { const renderable = object as THREE.Mesh; if (renderable.geometry) geometries.add(renderable.geometry); if (renderable.material) (Array.isArray(renderable.material) ? renderable.material : [renderable.material]).forEach((m) => materials.add(m)); }));
+      [scene, cafeRoom.root, ...Object.values(roomScenes)].forEach((root) => root.traverse((object) => { const renderable = object as THREE.Mesh; if (renderable.geometry) geometries.add(renderable.geometry); if (renderable.material) (Array.isArray(renderable.material) ? renderable.material : [renderable.material]).forEach((m) => materials.add(m)); }));
       materials.forEach((m) => { Object.values(m).forEach((v) => { if (v instanceof THREE.Texture) textures.add(v); }); m.dispose(); });
       geometries.forEach((g) => g.dispose()); textures.forEach((texture) => texture.dispose()); renderer.dispose(); renderer.domElement.remove();
     },

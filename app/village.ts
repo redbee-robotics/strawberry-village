@@ -181,10 +181,24 @@ export function buildVillage(scene: THREE.Object3D) {
   box([21, .03, -.7], [8.2, .1, 5.8], standard("#c8b493"));
   box([21, 1.7, -3.6], [8.2, 3.4, .18], cafeWall); obstacles.push({ x: 21, z: -3.6, w: 8.5, d: .4 });
   for (const x of [16.9, 25.1]) { const wall = box([x, 1.7, -.7], [.18, 3.4, 5.8], cafeWall); station(wall, "cafe"); obstacles.push({ x, z: -.7, w: .4, d: 6.2 }); }
+  // Close the facade and roof ends; only the central doorway is walkable.
+  for (const x of [18.45, 23.55]) {
+    box([x, 1.7, 2.2], [3.1, 3.4, .18], cafeWall);
+    obstacles.push({ x, z: 2.2, w: 3.1, d: .4 });
+  }
+  box([21, 2.95, 2.2], [2, .9, .18], cafeWall);
+  box([21, 3.4, -.7], [8.2, .12, 5.8], cafeWall);
+  const gable = new THREE.Shape(); gable.moveTo(-4.1, 3.4); gable.lineTo(4.1, 3.4); gable.lineTo(0, 4.55); gable.closePath();
+  const gableGeometry = new THREE.ExtrudeGeometry(gable, { depth: .18, bevelEnabled: false });
+  for (const z of [-3.69, 2.11]) mesh(gableGeometry, cafeWall, [21, 0, z]);
+  const cafeExteriorDoor = box([21, 1.25, 2.24], [2, 2.5, .12], m.darkwood);
+  cafeExteriorDoor.name = "cafe-exterior-door";
+  const cafeInterior = new THREE.Group(); cafeInterior.name = "cafe-interior"; cafeInterior.visible = false; cafeRoot.add(cafeInterior); activeParent = cafeInterior;
   const counter = box([21, .65, -1.2], [5.6, 1.3, .9], m.wood); box([21, 1.33, -1.2], [5.9, .09, 1.1], m.white); station(counter, "cafe"); obstacles.push({ x: 21, z: -1.2, w: 5.9, d: 1.1 });
   box([21, .9, -3.3], [7.3, 1.8, .4], m.wood);
   for (const x of [18.5, 19.2, 19.9]) cylinder([x, 2.0, -3.1], [.14, .23, .14], m.white);
   box([22.8, 1.8, -3.05], [1.1, .8, .6], m.steel);
+  activeParent = cafeRoot;
   for (const side of [-1, 1]) { const roof = box([21 + side * 2.15, 3.95, -.7], [4.6, .18, 6.6], cafeRoof); roof.rotation.z = side * -.26; station(roof, "cafe"); }
   for (const x of [18.5, 23.4]) {
     box([x, 1.75, 2.24], [2.3, 1.9, .07], m.wood); box([x, 1.75, 2.29], [2.1, 1.7, .07], windowMat);
@@ -241,5 +255,5 @@ export function buildVillage(scene: THREE.Object3D) {
     const z = -30 + i * 15; cylinder([-35.5, 3.4, z], [.09, 6.8, .09], standard("#aaa892")); box([-35.5, 6.4, z], [1.9, .09, .1], m.darkwood);
     if (i < 4) for (const dx of [-.65, .65]) { const points = []; for (let k = 0; k <= 12; k++) { const t = k / 12; points.push(new THREE.Vector3(-35.5 + dx, 6.45 - Math.sin(t * Math.PI) * .65, z + t * 15)); } scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), cableMaterial)); }
   }
-  return { obstacles, berries, beds, swaying, pondRipples, interactive, cutaways, seats, loungers, rooms, placeLabels, terrain };
+  return { obstacles, berries, beds, swaying, pondRipples, interactive, cutaways, seats, loungers, rooms, cafeInterior, cafeExteriorDoor, placeLabels, terrain };
 }

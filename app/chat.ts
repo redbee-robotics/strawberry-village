@@ -6,6 +6,8 @@ export type ConversationMessage = Speech & { id: string; name: string; self: boo
 export type Conversation = { ready: boolean; unavailable: boolean; messages: ConversationMessage[] };
 export const emptyConversation: Conversation = { ready: false, unavailable: false, messages: [] };
 export const cleanSpeech = (text: string) => text.trim();
+export const hasTestNeighbor = (hostname: string, pathname: string) =>
+  (hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".chatgpt.site")) && pathname.startsWith("/dev/");
 export function readSpeech(value: unknown, now: number): Speech | null {
   if (!value || typeof value !== "object") return null;
   const speech = value as Speech;

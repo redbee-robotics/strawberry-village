@@ -4,7 +4,7 @@ import { getDatabase, onDisconnect, onValue, ref, remove, serverTimestamp, set, 
 import { firebaseConfig } from "./firebase-config";
 import type { FarmWorld, RemotePlayer } from "./world";
 import { cleanNickname, nicknameChoice, sessionNicknames, suggestedNicknames, unusedNickname } from "./nicknames";
-import { canHear, cleanSpeech, MAX_SPEECH_LENGTH, readSpeech, type Conversation, type ConversationMessage } from "./chat";
+import { canHear, cleanSpeech, hasTestNeighbor, MAX_SPEECH_LENGTH, readSpeech, type Speech, type Conversation, type ConversationMessage } from "./chat";
 import { HOUSE_CENTERS } from "./locations";
 import { decodePosition, encodePosition } from "./presence-pose";
 import { activeVillagePlayers, villagePresencePaths, type VillagePlayers } from "./presence-state";
@@ -15,6 +15,7 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
   try { auth = initializeAuth(app, { persistence: browserSessionPersistence }); } catch { auth = getAuth(app); }
   const database = getDatabase(app);
   const { players: playersPath, speech: speechPath } = villagePresencePaths(window.location.hostname);
+  const previewNeighbor = hasTestNeighbor(window.location.hostname, window.location.pathname || "");
   const nicknameStorageKey = "strawberry-farmer-name-v2";
   // Normalize versioned wire coordinates to fit the existing database's numeric limits.
   const session = `v2-${Date.now()}-${crypto.randomUUID()}`;
@@ -47,7 +48,8 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
   let speechReadable = false, speechUnavailable = false, lastConversation = "", lastSpeech = 0;
   let latestSpeech: Record<string, Record<string, unknown>> = {};
   const heard = new Map<string, ConversationMessage>();
-  let timer = 0;
+  let timer = 0, speechSending = false;
+  let previewOwnSpeech: Speech | null = null, previewReply: Speech | null = null;
   let latestPlayers: VillagePlayers = {};
   const unsubscribe: (() => void)[] = [];
 
@@ -60,7 +62,7 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
     const nextName = assigned.get(session) || unusedNickname(name, taken);
     if (name !== nextName) { name = nextName; world.setName(name); onName(name); lastPose = ""; try { sessionStorage.setItem(nicknameStorageKey, name); } catch {} }
     const pose = world.getPose();
-    const remotes = players.filter((player) => player.id !== session).map((player) => {
+    const remotes: RemotePlayer[] = players.filter((player) => player.id !== session).map((player) => {
       const point = decodePosition(player.id, player.x, player.z);
       const extraHouse = HOUSE_CENTERS.findIndex(([x, z], index) => index >= 4 && Math.abs(point.x - x) < 3.4 && Math.abs(point.z - z) < 6.35);
       const room = extraHouse >= 4 && player.room === "outside" ? `house-${extraHouse}` as RemotePlayer["room"] : player.room;
@@ -70,13 +72,19 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
       return { ...player, ...point, room, name: displayName, speech: speech?.text || "" };
     });
     const own = players.find((player) => player.id === session);
-    const ownSpeech = own ? readSpeech(latestSpeech[own.uid]?.[session], now) : null;
+    const tester = previewNeighbor ? world.getTestNeighbor() : null;
+    if (tester) {
+      const reply = readSpeech(previewReply, now);
+      remotes.push({ ...tester, speech: reply?.text || "" });
+      if (reply) heard.set(`${tester.id}-${reply.createdAt}`, { ...reply, id: tester.id, name: tester.name, self: false });
+    }
+    const ownSpeech = readSpeech(previewOwnSpeech, now) || (own ? readSpeech(latestSpeech[own.uid]?.[session], now) : null);
     if (ownSpeech) heard.set(`${session}-${ownSpeech.createdAt}`, { ...ownSpeech, id: session, name, self: true });
     world.setLocalSpeech(ownSpeech?.text || "");
     world.setPlayers(remotes);
     for (const [key, message] of heard) if (now - message.createdAt > 300000) heard.delete(key);
     const messages = [...heard.values()].sort((a, b) => a.createdAt - b.createdAt).slice(-50);
-    const conversation = { ready: connected && published && speechReadable, unavailable: speechUnavailable, messages };
+    const conversation = { ready: !!tester || (connected && published && speechReadable), unavailable: speechUnavailable && !tester, messages };
     const serialized = JSON.stringify(conversation);
     if (serialized !== lastConversation) { lastConversation = serialized; onConversation(conversation); }
     reportStatus(connected && published && readable && players.some((player) => player.id === session) ? players.length : null);
@@ -103,6 +111,8 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
   const leave = () => { present = false; if (ownRef) void remove(ownRef).catch(() => {}); if (speechRef && speechReadable) void remove(speechRef).catch(() => {}); };
   const enter = () => { if (!disposed) { present = true; void publish(true); } };
 
+  timer = window.setInterval(() => { void publish(); renderPlayers(); }, 220);
+  renderPlayers();
   void (async () => {
     await auth.authStateReady();
     if (!auth.currentUser) await signInAnonymously(auth);
@@ -123,7 +133,6 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
       } catch { if (!disposed) { published = false; retryAfter = Date.now() + 5000; reportStatus(null); } }
     }));
     unsubscribe.push(onValue(ref(database, playersPath), (snapshot) => { readable = true; latestPlayers = snapshot.val() || {}; renderPlayers(); if (connected && !published) void publish(true); }, () => { readable = false; reportStatus(null); }));
-    timer = window.setInterval(() => { void publish(); renderPlayers(); }, 220);
     document.addEventListener("visibilitychange", visibility); window.addEventListener("pagehide", leave); window.addEventListener("pageshow", enter);
   })().catch(() => { if (!disposed) reportStatus(null); });
 
@@ -147,16 +156,25 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
   dispose.say = async (requested: string) => {
     const text = cleanSpeech(requested);
     if (!text || text.length > MAX_SPEECH_LENGTH) return { ok: false, message: `메시지는 1~${MAX_SPEECH_LENGTH}자로 입력해 주세요.` };
-    if (!connected || !published || !speechReadable || !speechRef || disposed || !present) return { ok: false, message: "지금은 대화에 연결할 수 없어요. 잠시 후 다시 시도해 주세요." };
+    const live = connected && published && speechReadable && speechRef;
+    const tester = previewNeighbor ? world.getTestNeighbor() : null;
+    if ((!live && !tester) || disposed || !present) return { ok: false, message: "지금은 대화에 연결할 수 없어요. 잠시 후 다시 시도해 주세요." };
     if (!world.nearbyVisitors().length) return { ok: false, message: "가까운 이웃에게 다가가 주세요." };
-    if (Date.now() - lastSpeech < 1000) return { ok: false, message: "잠깐 기다렸다가 이야기해 주세요." };
-    lastSpeech = Date.now();
+    if (speechSending || Date.now() - lastSpeech < 1000) return { ok: false, message: "잠깐 기다렸다가 이야기해 주세요." };
+    lastSpeech = Date.now(); speechSending = true;
+    // A server-adjusted numeric timestamp stays identical in the optimistic event and acknowledgement.
+    // serverTimestamp() changes between those events and would add the same line twice to heard.
+    const speech = { text, createdAt: Math.round(Date.now() + offset) };
     try {
-      await set(speechRef, { text, createdAt: serverTimestamp() });
-      if (disposed || !present) { await remove(speechRef); return { ok: false, message: "마을에 다시 연결한 뒤 이야기해 주세요." }; }
+      if (live) { previewOwnSpeech = null; await set(speechRef!, speech); }
+      else previewOwnSpeech = speech;
+      if (disposed || !present) { if (live) await remove(speechRef!); return { ok: false, message: "마을에 다시 연결한 뒤 이야기해 주세요." }; }
+      if (tester) previewReply = { text: "안녕하세요! 저는 채팅 테스트 이웃이에요.", createdAt: speech.createdAt + 1 };
+      renderPlayers();
       return { ok: true, message: "" };
     }
     catch { return { ok: false, message: "말을 전하지 못했어요. 잠시 후 다시 시도해 주세요." }; }
+    finally { speechSending = false; }
   };
   return dispose;
 }

@@ -25,7 +25,7 @@ export function createPlaceLabels(host: HTMLElement, camera: PerspectiveCamera, 
     layer.hidden = !visible;
     if (!visible) return;
     const width = host.clientWidth, height = host.clientHeight, mobile = width <= 760;
-    const reserved = Array.from((host.parentElement || host).querySelectorAll<HTMLElement>(".right-rail,.inventory-cards,.village-map,.village-dock,.toast"))
+    const reserved = Array.from((host.parentElement || host).querySelectorAll<HTMLElement>(".right-rail,.inventory-cards,.village-map,.village-dock,.toast,.conversation-panel"))
       .map((element) => element.getBoundingClientRect()).filter((rect) => rect.width && rect.height)
       .map((rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, w: rect.width, h: rect.height }));
     const view = [width, height, camera.fov, ...camera.position.toArray(), ...camera.quaternion.toArray(), ...reserved.flatMap((rect) => [rect.x, rect.y, rect.w, rect.h])].join(",");

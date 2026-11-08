@@ -17,7 +17,7 @@ export function createVisitorLabels(host: HTMLElement, camera: PerspectiveCamera
   }
   function update(scene: Object3D, isVisible: (object: Object3D) => boolean) {
     const width = host.clientWidth, height = host.clientHeight, bounds = host.getBoundingClientRect();
-    const occupied: Rect[] = [...document.querySelectorAll<HTMLElement>(".place-label:not([hidden]), .inventory-cards, .village-map, .header-tools, .season-pill, .village-dock, .toast")].map((node) => node.getBoundingClientRect()).filter((box) => box.width && box.height).map((box) => ({ left: box.left - bounds.left, right: box.right - bounds.left, top: box.top - bounds.top, bottom: box.bottom - bounds.top }));
+    const occupied: Rect[] = [...document.querySelectorAll<HTMLElement>(".place-label:not([hidden]), .inventory-cards, .village-map, .header-tools, .season-pill, .village-dock, .toast, .conversation-panel")].map((node) => node.getBoundingClientRect()).filter((box) => box.width && box.height).map((box) => ({ left: box.left - bounds.left, right: box.right - bounds.left, top: box.top - bounds.top, bottom: box.bottom - bounds.top }));
     labels.forEach(({ root: label, bubble, line }, object) => {
       const point = object.getWorldPosition(camera.position.clone()); point.y += 2.15 * object.scale.y; point.project(camera);
       label.hidden = object.parent !== scene || !object.visible || !isVisible(object) || point.z <= -1 || point.z >= 1 || Math.abs(point.x) > 1.15 || Math.abs(point.y) > 1.15;
