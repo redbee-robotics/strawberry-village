@@ -29,6 +29,7 @@ npm run dev
 ```sh
 node node_modules/typescript/bin/tsc --noEmit
 node scripts/validate-inventory.mjs
+node scripts/validate-navigation.mjs
 npm run build
 ```
 
@@ -56,4 +57,4 @@ GitHub의 **Pull requests → New pull request**에서 base를 `main`, compare�
 
 원본 인터뷰 사진과 녹음, 전사 자료, 로그인 토큰, 서비스 계정 키, 개인 환경 파일은 포함하지 않습니다. 기존의 작은 텍스처 두 개는 프로젝트에 이미 포함되어 있습니다.
 
-PR을 보내거나 병합하는 것만으로 공개 농장이 배포되지는 않습니다. Firebase 배포는 관리자가 사용자의 명시적 배포 요청을 받아 별도로 진행합니다.
+PR을 보내거나 병합하는 것만으로 공개 농장이 배포되지는 않습니다. 관리자가 GitHub Release를 게시하면 해당 태그의 검사와 빌드가 성공한 뒤 Firebase Hosting에 자동 배포합니다. 최초 인증 설정과 절차는 [Release 배포 안내](docs/RELEASES.md)를 참고해 주세요.

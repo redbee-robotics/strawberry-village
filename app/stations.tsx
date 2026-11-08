@@ -56,7 +56,7 @@ export default function StationPanel({ station, saved, update, notify, served }:
     const next = packFromBasket(saved, selected);
     if (!next) return;
     update(() => next); setSelected([]);
-    setFeedback("바구니에서 딸기 네 알을 꺼내 한 팩으로 포장하고, 내 가방에 넣었어요."); notify("포장한 딸기 1팩을 내 가방에 넣었어요.");
+    setFeedback("바구니에서 딸기 네 알을 꺼내 한 팩으로 포장하고, 가방에 넣었어요."); notify("포장한 딸기 1팩을 가방에 넣었어요.");
   }
   function order(drink: typeof drinks[number]) {
     if (orderGuard.current) return;
@@ -67,8 +67,8 @@ export default function StationPanel({ station, saved, update, notify, served }:
   }
   return <>
     {station !== "cafe" && <>
-      <p className="modal-intro">가져온 바구니에서 딸기 네 알을 골라주세요.<br />선별을 완료하면 포장된 팩이 내 가방에 들어가요.</p>
-      <div className="basket-packing-heading"><span><ShoppingBasket size={18} />내 바구니</span><strong>{available.length}알</strong><small>딸기를 눌러 팩에 담기</small></div>
+      <p className="modal-intro">가져온 바구니에서 딸기 네 알을 골라주세요.<br />선별을 완료하면 포장된 팩이 가방에 들어가요.</p>
+      <div className="basket-packing-heading"><span><ShoppingBasket size={18} />바구니</span><strong>{available.length}알</strong><small>딸기를 눌러 팩에 담기</small></div>
       <div className="carried-basket" aria-label="가져온 바구니 속 딸기">
         {available.length ? available.map((berry) => <button key={berry.id} onClick={() => setSelected((ids) => [...ids, berry.id])} disabled={selected.length >= 4} aria-label={`${berry.weight}g 딸기 팩에 담기`}><Fruit grade={berry.grade} size={berry.grade === "regular" ? 41 : 49} /><span>{berry.weight}g</span></button>) : <div className="basket-empty"><ShoppingBasket size={30} /><span>{selected.length ? "고른 딸기가 팩에 담겼어요." : "바구니가 비어 있어요."}</span><small>{selected.length ? "팩 속 딸기를 누르면 바구니로 돌아와요." : "하우스에서 딸기를 수확해 가져와 주세요."}</small></div>}
       </div>
