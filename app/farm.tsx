@@ -15,7 +15,7 @@ import StationPanel, { Inventory, Bag } from "./stations";
 import type { Station, RoomId } from "./village";
 import { connectVillage } from "./presence";
 import { watchNonsanWeather, type VillageWeather } from "./weather";
-import { loginWithJeojat, watchJeojatUser, type JeojatUser } from "./jeojat";
+import { loginWithJeojat, prepareJeojatFrameEntry, watchJeojatUser, type JeojatUser } from "./jeojat";
 
 function Berry({ size = 24, ...props }: React.SVGProps<SVGSVGElement> & { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 32 36" fill="none" {...props}>
@@ -112,8 +112,9 @@ export default function Farm() {
     return () => { connection(); villageConnection.current = null; };
   }, [ready, worldVersion]);
   useEffect(() => {
+    const stopEntry = prepareJeojatFrameEntry();
     const stop = watchJeojatUser((user) => { setJeojatUser(user); setJeojatMessage(""); }, () => { setJeojatUser(null); setJeojatMessage(""); });
-    return () => { jeojatLoginAttempt.current++; stop(); };
+    return () => { jeojatLoginAttempt.current++; stopEntry(); stop(); };
   }, []);
   useEffect(() => {
     if (!ready) return;
