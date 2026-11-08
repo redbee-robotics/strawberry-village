@@ -6,7 +6,7 @@ async function module(name) {
   const js = ts.transpileModule(fs.readFileSync(new URL(`../app/${name}.ts`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   return import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
 }
-const { watchJeojatUser, loginWithJeojat } = await module("jeojat");
+const { watchJeojatUser, loginWithJeojat, prepareJeojatFrameEntry } = await module("jeojat");
 const { rememberedNickname, rememberNickname } = await module("nicknames");
 const globals = ["window", "localStorage", "sessionStorage"];
 const previous = new Map(globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -54,7 +54,66 @@ try {
   assert.throws(() => loginWithJeojat(), /not ready/);
   stop = watchJeojatUser(user => users.push(user)); await Promise.resolve();
   assert.equal(users.length, 2, "Ignore an SDK configured for another site");
-  console.log("Jeojat profile validation passed: SDK readiness, account events, duplicate events, disposal, site/name validation, nickname migration and denied-storage fallback.");
+  stop();
+
+  // Deterministic clock: a lost SDK hello gets one delayed retry, with no
+  // automatic login dialog, token handling or repeated consent prompts.
+  let now = 0, nextTimer = 0;
+  const timers = new Map(), messages = [];
+  window = new EventTarget();
+  window.self = window;
+  window.top = window.parent = { postMessage: (...args) => messages.push(args) };
+  window.setTimeout = (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, at: now + delay }); return id; };
+  window.clearTimeout = id => timers.delete(id);
+  const advance = (ms) => { now += ms; for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); } };
+  const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
+  const frameSdk = (extra = {}) => {
+    const listeners = new Map();
+    return { site: "pYUoDazk7y", user: null, ready: Promise.resolve(),
+      on: (event, fn) => { if (!listeners.has(event)) listeners.set(event, []); listeners.get(event).push(fn); },
+      emit: event => { for (const fn of listeners.get(event) || []) fn(); },
+      login: () => { throw new Error("Automatic frame entry must not request login"); }, ...extra };
+  };
+  stop = prepareJeojatFrameEntry();
+  advance(10000); assert.equal(messages.length, 0, "Wait for an asynchronously loaded SDK");
+  let frameReady;
+  window.jeojat = frameSdk({ ready: new Promise(resolve => { frameReady = resolve; }) });
+  window.dispatchEvent(new Event("jeojat:ready"));
+  advance(10000); assert.equal(messages.length, 0, "Do not race the SDK's first attempt");
+  frameReady(); await flush();
+  advance(2999); assert.equal(messages.length, 0);
+  advance(1);
+  assert.deepEqual(messages, [[{ type: "jeojat:hello", site: "pYUoDazk7y" }, "https://jeojat.altolab.ai"]], "Retry only the greeting, addressed to the exact trusted parent origin");
+  advance(60000); assert.equal(messages.length, 1, "Do not poll or repeatedly reopen consent");
+  stop();
+
+  for (const event of ["login", "logout"]) {
+    window.jeojat = frameSdk(); stop = prepareJeojatFrameEntry(); await flush();
+    window.jeojat.emit(event); advance(3000);
+    assert.equal(messages.length, 1, `${event} cancels the pending automatic greeting`);
+    stop();
+  }
+  window.jeojat = frameSdk({ user: { uid: "existing", nick: "이미 연결됨" } });
+  stop = prepareJeojatFrameEntry(); await flush(); advance(3000);
+  assert.equal(messages.length, 1, "An already connected account does not need another consent offer"); stop();
+  window.jeojat = frameSdk(); stop = prepareJeojatFrameEntry(); await flush(); stop(); advance(3000);
+  assert.equal(messages.length, 1, "Unmount cancels the pending greeting");
+  stop = prepareJeojatFrameEntry(); await flush(); window.dispatchEvent(new Event("pagehide")); advance(3000);
+  assert.equal(messages.length, 1, "Leaving the page cancels the greeting"); stop();
+  window.jeojat = frameSdk({ login: () => Promise.resolve(null) });
+  stop = prepareJeojatFrameEntry(); await flush(); await loginWithJeojat(); advance(3000);
+  assert.equal(messages.length, 1, "An explicit login replaces the pending automatic retry"); stop();
+  window.jeojat = frameSdk({ ready: Promise.reject(new Error("SDK failed")) });
+  stop = prepareJeojatFrameEntry(); await flush(); advance(3000);
+  assert.equal(messages.length, 1, "Failed SDK readiness does not trigger a greeting"); stop();
+  window.jeojat = frameSdk({ site: "another-site" });
+  stop = prepareJeojatFrameEntry(); await flush(); advance(3000);
+  assert.equal(messages.length, 1, "Other SDK site IDs cannot initiate frame entry"); stop();
+  window.jeojat = frameSdk(); window.top = window;
+  stop = prepareJeojatFrameEntry(); await flush(); advance(3000);
+  assert.equal(messages.length, 1, "Standalone visits never trigger automatic entry"); stop();
+  assert.equal(timers.size, 0);
+  console.log("Jeojat profile validation passed: SDK readiness/events, one delayed iframe greeting, exact target origin, lifecycle/login cancellation, standalone behavior, nickname migration and denied-storage fallback.");
 } finally {
   stop?.();
   for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }
