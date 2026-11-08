@@ -188,6 +188,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   }
   // The counter attendant is the only fictional person. Visitors are live sessions.
   const clerk = person("카페 점원", "#907557"); clerk.object.position.set(21, 0, -9); clerk.object.rotation.y = 0; clerk.object.visible = false;
+  let testNeighbor: RemotePlayer | null = null;
   const remotePeople = new Map<string, ReturnType<typeof person> & { target: THREE.Vector3; angle: number; action: string; name: string; room: RoomId }>();
   let basketCount = 0, drinkHeld = false, paused = false, zoneLatched: Station | null = null;
   const dustGeo = new THREE.BufferGeometry(), dust = new Float32Array(65 * 3);
@@ -214,10 +215,11 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   const pressed = new Set<string>();
   let lastBedAccess: FarmAccess = { water: false, harvest: false, sit: false, lie: false, posture: "stand", inspect: false, inspecting: false };
   let posture: "stand" | "sit" | "lie" = "stand";
+  let groundRest = false;
   let poseExit: THREE.Vector3 | null = null;
   const nearestSeat = () => (activeRoom === "cafe" ? cafeRoom.seats : seats).find((seat) => Math.hypot(seat.x - farmer.position.x, seat.z - farmer.position.z) < 1.6);
   const nearestLounger = () => activeRoom === "cafe" ? undefined : loungers.find((space) => Math.hypot(space.x - farmer.position.x, space.z - farmer.position.z) < 3.0);
-  function standUp() { posture = "stand"; postureGroup.rotation.x = 0; postureGroup.position.set(0, 0, 0); if (poseExit) { farmer.position.copy(poseExit); poseExit = null; } }
+  function standUp() { posture = "stand"; groundRest = false; postureGroup.rotation.x = 0; postureGroup.position.set(0, 0, 0); if (poseExit) { farmer.position.copy(poseExit); poseExit = null; } }
   const nearBed = () => activeRoom.startsWith("house-") && beds.some((bed) => Math.hypot(Math.max(0, Math.abs(farmer.position.x - bed.x) - bed.w / 2), Math.max(0, Math.abs(farmer.position.z - bed.z) - bed.d / 2)) < 1.15);
   const nearRipe = () => activeRoom.startsWith("house-") && berries.some((berry) => berry.ready && Math.hypot(berry.x - farmer.position.x, berry.z - farmer.position.z) < 1.8);
   function valid(x: number, z: number) {
@@ -349,7 +351,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   let lastPositionSave = 0, lastPositionJson = "";
   function savePosition() {
     const point = poseExit || farmer.position;
-    const value = JSON.stringify({ version: 2, x: point.x, z: point.z, angle: farmer.rotation.y, room: activeRoom, posture, cameraMode: "follow", cafeLayout: 2, view: inspectView || view });
+    const value = JSON.stringify({ version: 2, x: point.x, z: point.z, angle: farmer.rotation.y, room: activeRoom, posture, groundRest, cameraMode: "follow", cafeLayout: 2, view: inspectView || view });
     if (value === lastPositionJson) return;
     try { localStorage.setItem(positionKey, value); lastPositionJson = value; } catch { /* Storage can be unavailable. */ }
   }
@@ -369,7 +371,8 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       if (activeRoom === "cafe" && saved.cafeLayout !== 2) view = readFollowView({ ...view, distance: Math.max(8, view.distance) });
       if (saved.posture === "sit" || saved.posture === "lie") {
         const spot = saved.posture === "sit" ? nearestSeat() : nearestLounger();
-        if (spot) { poseExit = farmer.position.clone(); farmer.position.set(spot.x, 0, spot.z); farmer.rotation.y = spot.angle; posture = saved.posture; }
+        if (saved.posture === "lie" && saved.groundRest) { poseExit = farmer.position.clone(); posture = "lie"; groundRest = true; }
+        else if (spot) { poseExit = farmer.position.clone(); farmer.position.set(spot.x, 0, spot.z); farmer.rotation.y = spot.angle; posture = saved.posture; }
       }
     } catch { /* A corrupt saved position falls back to the yard. */ }
   }
@@ -420,7 +423,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     body.position.y = moving && !reducedMotion ? Math.abs(Math.sin(t * 12)) * 0.055 : 0;
     arms[1].rotation.z = 0.16; cup.rotation.x = 0;
     if (posture === "sit") { legs[0].rotation.x = legs[1].rotation.x = -1.3; body.position.y = -.08; }
-    if (posture === "lie") { postureGroup.rotation.x = -Math.PI / 2; postureGroup.position.set(0, .85, .8); }
+    if (posture === "lie") { postureGroup.rotation.x = -Math.PI / 2; postureGroup.position.set(0, groundRest ? .18 : .85, .8); }
     if (!paused && currentAction) {
       if (currentAction.phase === "walking") {
         currentAction.phase = "acting"; currentAction.time = now;
@@ -458,9 +461,9 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     } else if (activeRoom === "sorting") {
       if (farmer.position.z < 15.9 || farmer.position.z > 23.7 || Math.abs(farmer.position.x) > 6.7) setRoom("outside");
     } else { const [x, z] = HOUSE_CENTERS[Number(activeRoom.slice(6))]; if (Math.abs(farmer.position.x - x) > 3.9 || Math.abs(farmer.position.z - z) > 7.0) setRoom("outside"); }
-    const access: FarmAccess = { water: posture === "stand" && nearBed(), harvest: posture === "stand" && nearBed() && nearRipe(), sit: posture === "sit" || (posture === "stand" && !!nearestSeat()), lie: posture === "lie" || (posture === "stand" && !!nearestLounger()), posture, inspect: posture === "stand" && nearBed(), inspecting };
+    const access: FarmAccess = { water: posture === "stand" && nearBed(), harvest: posture === "stand" && nearBed() && nearRipe(), sit: posture === "sit" || (posture === "stand" && !!nearestSeat()), lie: posture === "lie" || (posture === "stand" && jumpHeight === 0), posture, inspect: posture === "stand" && nearBed(), inspecting };
     if (Object.keys(access).some((key) => access[key as keyof FarmAccess] !== lastBedAccess[key as keyof FarmAccess])) { lastBedAccess = access; onBedAccess(access); }
-    const zone: Station | null = activeRoom === "sorting" && Math.abs(farmer.position.x) < 5.6 && farmer.position.z > 17 && farmer.position.z < 22.95 ? "sorting" : activeRoom === "cafe" && Math.abs(farmer.position.x - 21) < 4.3 && farmer.position.z > -6 && farmer.position.z < -3.5 ? "cafe" : null;
+    const zone: Station | null = activeRoom === "cafe" && Math.abs(farmer.position.x - 21) < 4.3 && farmer.position.z > -6 && farmer.position.z < -3.5 ? "cafe" : null;
     if (!zone) zoneLatched = null;
     if (!paused && !currentAction && zone && zone !== zoneLatched) { zoneLatched = zone; pressed.clear(); stopWalking(); onStation(zone); }
     basket.visible = basketCount > 0; basketFruits.forEach((fruit, i) => fruit.visible = i < Math.min(basketCount, 6)); cup.visible = drinkHeld && currentAction?.type !== "water";
@@ -475,7 +478,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       const leftLeg = remote.object.getObjectByName("leg-left"), rightLeg = remote.object.getObjectByName("leg-right"), pose = remote.object.getObjectByName("posture");
       if (leftLeg) leftLeg.rotation.x = remote.action === "sit" ? -1.3 : step;
       if (rightLeg) rightLeg.rotation.x = remote.action === "sit" ? -1.3 : -step;
-      if (pose) { pose.rotation.x = remote.action === "lie" ? -Math.PI / 2 : 0; pose.position.set(0, remote.action === "lie" ? .85 : 0, remote.action === "lie" ? .8 : 0); }
+      if (pose) { pose.rotation.x = remote.action === "lie" ? -Math.PI / 2 : 0; pose.position.set(0, remote.action === "lie" ? (remote.room === "outside" && loungers.some((spot) => Math.hypot(spot.x - remote.target.x, spot.z - remote.target.z) < 3) ? .85 : .18) : 0, remote.action === "lie" ? .8 : 0); }
     });
     if (!reducedMotion) {
       swaying.forEach((s) => s.mesh.rotation.z = s.origin + Math.sin(t * 0.65 + s.phase) * windStrength);
@@ -513,7 +516,10 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     cancel,
     pose(type) {
       cancel(); if (posture !== "stand") { standUp(); return; }
-      const spot = type === "sit" ? nearestSeat() : nearestLounger(); if (!spot) return;
+      const furniture = type === "sit" ? nearestSeat() : nearestLounger();
+      const spot = furniture || (type === "lie" && jumpHeight === 0 ? { x: farmer.position.x, z: farmer.position.z, angle: farmer.rotation.y } : null);
+      if (!spot) return;
+      groundRest = type === "lie" && !furniture;
       const original = farmer.position.clone(); farmer.position.set(spot.x, 0, spot.z); farmer.rotation.y = spot.angle; poseExit = original; posture = type;
     },
     setBasket(count) { basketCount = count; },
@@ -522,12 +528,14 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     setPaused(value) { paused = value; if (value) { clearKeys(); if (currentAction?.type === "drink") cancel(); } },
     setName(name) { visitorLabels.setName(farmer, name); },
     getTestNeighbor() {
+      if (testNeighbor) return testNeighbor;
       for (const radius of [2.4, 1.7, 1.1]) for (const offset of [0.7, -0.7, 1.5, -1.5, 0, Math.PI]) {
         const angle = view.yaw + offset, x = farmer.position.x + Math.sin(angle) * radius, z = farmer.position.z + Math.cos(angle) * radius;
         const area = buildingAreas.find((building) => Math.abs(x - building.x) < building.w / 2 && Math.abs(z - building.z) < building.d / 2);
         if ((activeRoom === "cafe" ? z > 8.5 : (area?.room || "outside") !== activeRoom) || !valid(x, z)) continue;
         if (Array.from({ length: 10 }, (_, i) => (i + 1) / 10).some((t) => !valid(farmer.position.x + (x - farmer.position.x) * t, farmer.position.z + (z - farmer.position.z) * t))) continue;
-        return { id: "preview-test-neighbor", name: "테스트 이웃", x, z, angle: angle + Math.PI, action: "walk", basket: 0, room: activeRoom };
+        testNeighbor = { id: "preview-test-neighbor", name: "테스트 이웃", x, z, angle: angle + Math.PI, action: "walk", basket: 0, room: activeRoom };
+        return testNeighbor;
       }
       return null;
     },

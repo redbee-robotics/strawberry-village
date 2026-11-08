@@ -82,7 +82,8 @@ try {
   for (const stop of connections) stop(); await flush();
   window.location.hostname = "strawberry-garden.example.chatgpt.site"; window.location.pathname = "/dev/";
   const preview = world(0);
-  preview.getTestNeighbor = () => ({ id: "preview-test-neighbor", name: "테스트 이웃", x: preview.pose.x + 1, z: preview.pose.z, angle: 0, action: "walk", basket: 0, room: preview.pose.room });
+  const fixedTester = { id: "preview-test-neighbor", name: "테스트 이웃", x: preview.pose.x + 1, z: preview.pose.z, angle: 0, action: "walk", basket: 0, room: preview.pose.room };
+  preview.getTestNeighbor = () => fixedTester;
   const previewConnection = connect(preview, (count) => preview.count = count, (name) => preview.name = name, (state) => preview.conversation = state);
   connections.push(previewConnection); await flush();
   assert.equal(preview.count, 1, "The test neighbor is not a real online session");
@@ -94,5 +95,8 @@ try {
   assert.ok(preview.remotes[0].speech.includes("테스트 이웃"));
   now += chat.SPEECH_LIFETIME + 2; for (const tick of [...timers.values()]) tick(); await flush();
   assert.equal(preview.speech, ""); assert.equal(preview.remotes[0].speech, "");
+  preview.pose.x = 40; for (const tick of [...timers.values()]) tick(); await flush();
+  assert.equal(preview.remotes[0].x, 1, "The test neighbor does not follow");
+  assert.equal((await previewConnection.say("멀리서는 안 들려요")).ok, false);
   console.log("Presence integration passed with simulated Firebase transport: unique names, rename rejection, single optimistic/acknowledged messages, intentional repeats, preview-only test neighbor, group speech, distance/room filtering, cooldown, bubble expiry, disconnect cleanup, legacy exclusion and production/development player and speech isolation.");
 } finally { for (const stop of connections) stop(); Date.now = originalNow; delete globalThis.window; delete globalThis.document; delete globalThis.sessionStorage; }

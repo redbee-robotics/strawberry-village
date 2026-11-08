@@ -58,11 +58,17 @@ try {
   assert.equal(farmer.visible, true, "The local character is visible in third person");
   const anchor = farmer.position.clone().add(new THREE.Vector3(0, 1.1, 0));
   assert.ok(renderedCamera.position.distanceTo(anchor) > 3);
+  world.pose("lie"); tick();
+  assert.equal(world.getPose().action, "lie", "Rest on ordinary ground without a lounger");
+  assert.ok(farmer.getObjectByName("posture").position.y < 0.3, "Ground resting does not float at platform height");
+  world.pose("lie"); tick(); assert.equal(world.getPose().action, "walk");
+  const stationaryNeighbor = { ...world.getTestNeighbor() };
   const before = world.getPose();
   send(host.children[0], "pointerdown", { pointerType: "mouse", button: 0, pointerId: 1, clientX: 300, clientY: 300 });
   send(host.children[0], "pointermove", { pointerId: 1, clientX: 380, clientY: 320 });
   send(host.children[0], "pointerup", { pointerId: 1, button: 0, clientX: 380, clientY: 320 });
   tick();
+  assert.deepEqual(world.getTestNeighbor(), stationaryNeighbor, "Turning the camera does not move the test neighbor");
   assert.deepEqual(world.getPose(), before, "Rotating the camera neither walks nor turns the character");
   const projected = anchor.clone().project(renderedCamera);
   assert.ok(Math.abs(projected.x) < 1e-6 && Math.abs(projected.y) < 1e-6, "Dragging keeps the character centered");
@@ -112,6 +118,18 @@ try {
   for (let i = 0; i < 25; i++) tick(100);
   send(window, "keyup", { key: "ArrowDown" });
   assert.equal(world.getPose().room, "outside", "The interior door returns to the exterior terrace");
+  world.dispose();
+  storage.set("strawberry-world-position-v2", JSON.stringify({ version: 2, x: 0, z: 19, angle: Math.PI, room: "sorting", posture: "stand", cameraMode: "follow", view: { yaw: Math.PI, pitch: -0.38, distance: 8 } }));
+  let stationOpened = false;
+  const sortingHost = new Element();
+  world = createFarmWorld(sortingHost, () => {}, () => { stationOpened = true; }, () => {}); tick();
+  assert.equal(world.getPose().room, "sorting"); assert.equal(stationOpened, false, "Entering sorting does not automatically open the work panel");
+  const fixedNeighbor = { ...world.getTestNeighbor() };
+  send(sortingHost.children[0], "keydown", { key: "ArrowLeft", code: "ArrowLeft" }); tick(100); send(window, "keyup", { key: "ArrowLeft" });
+  assert.deepEqual(world.getTestNeighbor(), fixedNeighbor, "The test neighbor stays put when the player walks");
+  world.pose("lie"); tick(); world.dispose();
+  world = createFarmWorld(new Element(), () => {}, () => {}, () => {}); tick();
+  assert.equal(world.getPose().action, "lie", "Ground resting survives reconnecting");
   console.log("World action validation passed: visible character, anchored drag, drink animation, cancellation, one-time consumption, reduced motion, presence compatibility and disposal.");
 } catch (error) {
   console.error(error.message); process.exitCode = 1;

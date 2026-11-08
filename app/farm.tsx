@@ -30,6 +30,8 @@ const storageKey = "strawberry-garden-v1";
 
 export default function Farm() {
   const mount = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLElement>(null);
+  const mapRef = useRef<HTMLElement>(null);
   const engine = useRef<FarmWorld | null>(null);
   const villageConnection = useRef<ReturnType<typeof connectVillage> | null>(null);
   const audio = useRef<{ context: AudioContext; stop: () => void } | null>(null);
@@ -189,16 +191,30 @@ export default function Farm() {
   }
 
   function served(name: string) { setModal(null); setActiveDrink(name); engine.current?.setDrink(true); notify(`${name}를 받았어요. 마시기를 눌러 즐겨보세요.`); }
-  type VisibleAction = "water" | "harvest" | "sit" | "lie" | "inspect" | "talk" | "drink";
+  type VisibleAction = "water" | "harvest" | "sit" | "lie" | "inspect" | "talk" | "drink" | "sort";
   const contextActions: VisibleAction[] = room.startsWith("house-") ? ["water", "harvest"] : [];
+  if (room === "sorting") contextActions.push("sort");
   if (bedAccess.sit) contextActions.push("sit");
   if (bedAccess.lie) contextActions.push("lie");
   if (bedAccess.inspect) contextActions.push("inspect");
   if (nearby.length) contextActions.push("talk");
   if (activeDrink) contextActions.push("drink");
+  useEffect(() => {
+    const root = mount.current?.parentElement;
+    if (!root) return;
+    const measure = () => {
+      root.style.setProperty("--action-dock-height", `${Math.ceil(dockRef.current?.getBoundingClientRect().height || 0)}px`);
+      root.style.setProperty("--village-map-height", `${Math.ceil(mapRef.current?.getBoundingClientRect().height || 0)}px`);
+    };
+    const observer = new ResizeObserver(measure);
+    if (dockRef.current) observer.observe(dockRef.current);
+    if (mapRef.current) observer.observe(mapRef.current);
+    measure(); return () => observer.disconnect();
+  }, [contextActions.length, showMap, room]);
   const contextKey = (action: VisibleAction) => contextActions.indexOf(action) + 1;
   function triggerAction(action: VisibleAction) {
     if (action === "talk") { if (nearby.length) setShowChat(true); }
+    else if (action === "sort") { if (room === "sorting") setModal("sorting"); }
     else if (action === "inspect") engine.current?.inspectBed();
     else if (action === "sit" || action === "lie") engine.current?.pose(action);
     else if (!busy) void doAction(action);
@@ -232,7 +248,7 @@ export default function Farm() {
     </header>
 
     <h1 className="sr-only">온라인 딸기 농장</h1>
-    {room === "outside" && <aside id="village-map" className={`village-map ${showMap ? "" : "is-minimized"}`} aria-label="마을 둘러보기">
+    {room === "outside" && <aside ref={mapRef} id="village-map" className={`village-map ${showMap ? "" : "is-minimized"}`} aria-label="마을 둘러보기">
       {!showMap ? <button className="map-minimized-button" onClick={() => setShowMap(true)} aria-label="마을 지도 펼치기" aria-expanded={false}><Compass size={16} /><strong>마을 지도</strong><Plus size={15} /></button> : <>
       <div className="map-heading"><Compass size={16} /><strong>마을 지도</strong><button className="icon-button map-minimize" onClick={() => setShowMap(false)} aria-label="마을 지도 최소화" aria-expanded={true} title="지도 최소화"><Minus size={16} /></button></div>
       <VillageMap />
@@ -257,9 +273,10 @@ export default function Farm() {
       <button className="bag-card" onClick={() => setModal("bag")} aria-label={`가방, 딸기 ${saved.boxes}팩`}><Backpack size={28} strokeWidth={1.4} /><span><small>가방</small><strong>{saved.boxes}<span>팩</span></strong></span><ArrowUpRight size={15} /></button>
     </div>
     <footer className="bottom-bar">
-      {contextActions.length > 0 && <nav className="action-dock village-dock" aria-label="농장에서 할 일">
+      {contextActions.length > 0 && <nav ref={dockRef} className="action-dock village-dock" aria-label="농장에서 할 일">
         {room.startsWith("house-") && <button className={active === "water" ? "dock-action selected water" : "dock-action"} onClick={() => void doAction("water")} disabled={!ready || busy || !bedAccess.water} aria-pressed={active === "water"} title={bedAccess.water ? "베드에 물 주기" : "딸기 베드 가까이 이동해 주세요"}><Droplets size={23} /><span>{busy && active === "water" ? "물 주는 중" : "물 주기"}</span><i>{contextKey("water")}</i></button>}
         {room.startsWith("house-") && <button className={active === "harvest" ? "dock-action selected berry" : "dock-action"} onClick={() => void doAction("harvest")} disabled={!ready || busy || !bedAccess.harvest} aria-pressed={active === "harvest"} title={bedAccess.harvest ? "가까운 딸기 수확" : "잘 익은 딸기 가까이 이동해 주세요"}><Berry size={23} /><span>{busy && active === "harvest" ? "수확 중" : "수확"}</span><i>{contextKey("harvest")}</i></button>}
+        {room === "sorting" && <button className="dock-action context-action" disabled={!ready} aria-keyshortcuts={String(contextKey("sort"))} onClick={() => setModal("sorting")}><Package size={23} /><span>딸기 선별</span><i>{contextKey("sort")}</i></button>}
         {bedAccess.sit && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("sit"))} onClick={() => engine.current?.pose("sit")}><Armchair size={23} /><span>{bedAccess.posture === "sit" ? "일어나기" : "앉기"}</span><i>{contextKey("sit")}</i></button>}
         {bedAccess.lie && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("lie"))} onClick={() => engine.current?.pose("lie")}><BedDouble size={23} /><span>{bedAccess.posture === "lie" ? "일어나기" : "눕기"}</span><i>{contextKey("lie")}</i></button>}
         {bedAccess.inspect && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("inspect"))} onClick={() => engine.current?.inspectBed()}><Search size={23} /><span>{bedAccess.inspecting ? "돌아가기" : "살펴보기"}</span><i>{contextKey("inspect")}</i></button>}
@@ -270,7 +287,7 @@ export default function Farm() {
     </footer>
 
     {showChat && !modal && <aside className="conversation-panel" aria-label="주변 대화" onKeyDown={(event) => { if (event.key === "Escape") { setShowChat(false); mount.current?.querySelector("canvas")?.focus(); } }}>
-      <header><h2><MessageCircle size={17} />주변 대화</h2><button className="icon-button" aria-label="대화창 닫기" onClick={() => { setShowChat(false); mount.current?.querySelector("canvas")?.focus(); }}><X size={18} /></button></header>
+      <button className="icon-button conversation-close" aria-label="대화창 닫기" onClick={() => { setShowChat(false); mount.current?.querySelector("canvas")?.focus(); }}><X size={16} /></button>
       <ConversationPanel conversation={conversation} nearby={nearby.map((visitor) => visitor.name)} send={(text) => villageConnection.current?.say(text) || Promise.resolve({ ok: false, message: "지금은 대화에 연결할 수 없어요." })} />
     </aside>}
     {activeDrink && <span className="held-drink"><Coffee size={16} />{activeDrink}</span>}
@@ -283,14 +300,14 @@ export default function Farm() {
       <div className={`modal ${modal === "sorting" || modal === "packing" || modal === "cafe" ? "station-modal" : ""}`} ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <button className="modal-close icon-button" onClick={() => setModal(null)} aria-label="닫기"><X size={21} /></button>
         <span className="eyebrow"><span />{modal === "help" ? "WELCOME TO OUR LITTLE FARM" : modal === "settings" ? "MAKE YOURSELF AT HOME" : "LITTLE MOMENTS, LITTLE HARVEST"}</span>
-        <h2 id="modal-title">{modal === "help" ? "딸기마을에서 보내는 시간" : modal === "settings" ? "설정" : modal === "sorting" ? "딸기 선별장" : modal === "packing" ? "딸기 선별장" : modal === "cafe" ? "딸기 카페" : modal === "bag" ? "가방" : "바구니"}</h2>
+        <h2 id="modal-title">{modal === "help" ? "딸기마을에서 보내는 시간" : modal === "settings" ? "설정" : modal === "sorting" ? "딸기 선별" : modal === "packing" ? "딸기 선별" : modal === "cafe" ? "딸기 카페" : modal === "bag" ? "가방" : "바구니"}</h2>
         {modal === "help" && <>
           <p className="modal-intro">정해진 순서도, 해야 할 일도 없어요.<br />당신의 속도로 머물러 주세요.</p>
           <div className="help-list">
             <div><Footprints /><span><strong>천천히 걸어요</strong><small>가고 싶은 곳을 클릭하거나 터치하면 그곳으로 걸어가요. 방향키로 걷고 스페이스바로 점프해요.</small></span></div>
             <div><Compass /><span><strong>내 캐릭터를 따라 둘러봐요</strong><small>가까운 3인칭 시점으로 내 캐릭터와 주변을 봐요. 드래그하면 캐릭터를 중심으로 회전하고, 걸으면 화면이 따라와요. 휠이나 핀치로 가까운 범위에서 확대·축소해요.</small></span></div>
             <div><Droplets /><span><strong>작은 마음을 나눠요</strong><small>딸기 베드 가까이 가면 물 주기와 수확 버튼이 켜져요. 낱알은 바구니에 담겨요.</small></span></div>
-            <div><Package /><span><strong>바구니를 들고 선별장으로</strong><small>선별장에 걸어 들어가면 바구니 속 딸기를 팩에 담을 수 있어요.</small></span></div>
+            <div><Package /><span><strong>바구니를 들고 선별장으로</strong><small>선별장 안에서 아래 딸기 선별 버튼을 누르면 바구니 속 딸기를 팩에 담을 수 있어요.</small></span></div>
             <div><Coffee /><span><strong>카페도 걸어서 들어가요</strong><small>딸기 카페 안의 점원에게 음료를 주문하고, 받은 뒤 마시기 버튼이나 표시된 숫자키로 마실 수 있어요.</small></span></div>
           </div>
           <div className="help-contribute"><p>당신도 딸기마을에 기여할 수 있어요.</p><a href="https://github.com/redbee-robotics/strawberry-village" target="_blank" rel="noreferrer">github.com/redbee-robotics/strawberry-village <ArrowUpRight size={14} /></a></div>

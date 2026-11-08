@@ -74,7 +74,7 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
     const own = players.find((player) => player.id === session);
     const tester = previewNeighbor ? world.getTestNeighbor() : null;
     if (tester) {
-      const reply = readSpeech(previewReply, now);
+      const reply = canHear(pose, tester) ? readSpeech(previewReply, now) : null;
       remotes.push({ ...tester, speech: reply?.text || "" });
       if (reply) heard.set(`${tester.id}-${reply.createdAt}`, { ...reply, id: tester.id, name: tester.name, self: false });
     }
@@ -158,7 +158,8 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
     if (!text || text.length > MAX_SPEECH_LENGTH) return { ok: false, message: `메시지는 1~${MAX_SPEECH_LENGTH}자로 입력해 주세요.` };
     const live = connected && published && speechReadable && speechRef;
     const tester = previewNeighbor ? world.getTestNeighbor() : null;
-    if ((!live && !tester) || disposed || !present) return { ok: false, message: "지금은 대화에 연결할 수 없어요. 잠시 후 다시 시도해 주세요." };
+    const nearTester = tester && canHear(world.getPose(), tester);
+    if ((!live && !nearTester) || disposed || !present) return { ok: false, message: "지금은 대화에 연결할 수 없어요. 잠시 후 다시 시도해 주세요." };
     if (!world.nearbyVisitors().length) return { ok: false, message: "가까운 이웃에게 다가가 주세요." };
     if (speechSending || Date.now() - lastSpeech < 1000) return { ok: false, message: "잠깐 기다렸다가 이야기해 주세요." };
     lastSpeech = Date.now(); speechSending = true;
@@ -169,7 +170,7 @@ export function connectVillage(world: FarmWorld, onStatus: (total: number | null
       if (live) { previewOwnSpeech = null; await set(speechRef!, speech); }
       else previewOwnSpeech = speech;
       if (disposed || !present) { if (live) await remove(speechRef!); return { ok: false, message: "마을에 다시 연결한 뒤 이야기해 주세요." }; }
-      if (tester) previewReply = { text: "안녕하세요! 저는 채팅 테스트 이웃이에요.", createdAt: speech.createdAt + 1 };
+      if (nearTester) previewReply = { text: "안녕하세요! 저는 채팅 테스트 이웃이에요.", createdAt: speech.createdAt + 1 };
       renderPlayers();
       return { ok: true, message: "" };
     }
