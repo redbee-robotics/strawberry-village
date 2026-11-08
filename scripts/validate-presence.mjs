@@ -5,27 +5,32 @@ const compile = (name) => ts.transpileModule(fs.readFileSync(new URL(`../app/${n
 const module = async (name) => import(`data:text/javascript;base64,${Buffer.from(compile(name)).toString("base64")}`);
 const names = await module("nicknames"), chat = await module("chat"), poses = await module("presence-pose"), locations = await module("locations");
 const presence = await module("presence-state");
+const jeojat = await module("jeojat");
+const farmerSource = compile("jeojat-farmer").replace(/^import .*;\n/gm, "").replace("export function connectJeojatFarmer", "function connectJeojatFarmer");
+const connectJeojatFarmer = new Function("watchJeojatUser", farmerSource + "\nreturn connectJeojatFarmer;")(jeojat.watchJeojatUser);
 const store = {}, listeners = new Set(), timers = new Map();
 let authIndex = 0, timerIndex = 0, now = Date.now();
 let pauseSpeech = false, completeSpeech;
 const originalNow = Date.now;
+const originalRandom = Math.random;
 Date.now = () => now;
 const read = (path) => path.split("/").reduce((value, key) => value?.[key], store) ?? null;
 function write(path, value) { const parts = path.split("/"); let parent = store; for (const part of parts.slice(0, -1)) parent = parent[part] ||= {}; if (value === null) delete parent[parts.at(-1)]; else parent[parts.at(-1)] = value; }
 function emit(changed) { for (const listener of [...listeners]) if (listener.path === changed || changed.startsWith(listener.path + "/") || listener.path.startsWith(changed + "/")) listener.callback({ val: () => structuredClone(read(listener.path)) }); }
 const bindings = {
-  getApps: () => [], getApp: () => ({}), initializeApp: () => ({}), getAuth: () => ({}), browserSessionPersistence: {},
+  getApps: () => [], getApp: () => ({}), initializeApp: () => ({}), getAuth: () => ({}), browserLocalPersistence: {}, browserSessionPersistence: {},
   initializeAuth: () => ({ currentUser: { uid: `visitor-${++authIndex}` }, authStateReady: async () => {} }), signInAnonymously: async () => {},
   getDatabase: () => ({}), ref: (_, path) => path,
   onValue: (path, callback) => { const listener = { path, callback }; listeners.add(listener); callback({ val: () => path === ".info/connected" ? true : path === ".info/serverTimeOffset" ? 0 : structuredClone(read(path)) }); return () => listeners.delete(listener); },
   onDisconnect: () => ({ remove: async () => {} }),
   serverTimestamp: () => ({ ".sv": "timestamp" }),
   set: async (path, value) => { if (pauseSpeech && path.includes("/speech/")) await new Promise(resolve => { completeSpeech = resolve; }); const resolveTimes = (time) => Object.fromEntries(Object.entries(value).map(([key, item]) => [key, item?.[".sv"] === "timestamp" ? time : item])); write(path, resolveTimes(now - 40)); emit(path); await Promise.resolve(); write(path, resolveTimes(now)); emit(path); }, remove: async (path) => { write(path, null); emit(path); },
-  firebaseConfig: {}, ...names, ...chat, ...poses, ...locations, ...presence,
+  firebaseConfig: {}, ...names, ...chat, ...poses, ...locations, ...presence, connectJeojatFarmer,
 };
-globalThis.window = { location: { hostname: "localhost" }, setInterval: (callback) => { timers.set(++timerIndex, callback); return timerIndex; }, clearInterval: (id) => timers.delete(id), setTimeout: () => ++timerIndex, clearTimeout: () => {}, addEventListener: () => {}, removeEventListener: () => {} };
+globalThis.window = Object.assign(new EventTarget(), { location: { hostname: "localhost" }, setInterval: (callback) => { timers.set(++timerIndex, callback); return timerIndex; }, clearInterval: (id) => timers.delete(id), setTimeout: () => ++timerIndex, clearTimeout: () => {} });
 globalThis.document = { hidden: false, addEventListener: () => {}, removeEventListener: () => {} };
 const memory = new Map(); globalThis.sessionStorage = { getItem: (key) => memory.get(key) || null, setItem: (key, value) => memory.set(key, value) };
+const persistent = new Map(); globalThis.localStorage = { getItem: (key) => persistent.get(key) || null, setItem: (key, value) => persistent.set(key, value) };
 const source = compile("presence").replace(/^import .*;\n/gm, "").replace("export function connectVillage", "function connectVillage");
 const connect = new Function(...Object.keys(bindings), source + "\nreturn connectVillage;")(...Object.values(bindings));
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
@@ -35,7 +40,9 @@ function world(x) { const state = { pose: { x, z: 9, angle: 0, action: "walk", b
 }
 try {
   for (let i = 0; i < 10; i++) write(`village/players/legacy/old-${i}`, { id: `old-${i}`, name: "산들바람", x: 0, z: 9, angle: 0, action: "walk", basket: 0, updatedAt: now });
-  for (const x of [0, 1, 2]) { const next = world(x); connections.push(connect(next, (count) => next.count = count, (name) => next.name = name, (state) => next.conversation = state)); }
+  Math.random = () => 0;
+  for (const x of [0, 1, 2]) { memory.clear(); persistent.clear(); const next = world(x); connections.push(connect(next, (count) => next.count = count, (name) => next.name = name, (state) => next.conversation = state)); }
+  Math.random = originalRandom;
   await flush();
   assert.ok(worlds.every((state) => state.count === 3 && state.conversation.ready));
   assert.equal(new Set(worlds.map((state) => state.name)).size, 3);
@@ -60,7 +67,7 @@ try {
   assert.equal(worlds[0].speech, ""); assert.ok(worlds[1].remotes.every((remote) => !remote.speech));
   connections[2](); await flush(); assert.equal(worlds[0].count, 2);
   window.location.hostname = "strawberry-village.web.app";
-  for (const x of [0, 1]) { const next = world(x); connections.push(connect(next, (count) => next.count = count, (name) => next.name = name, (state) => next.conversation = state)); }
+  for (const x of [0, 1]) { memory.clear(); persistent.clear(); const next = world(x); connections.push(connect(next, (count) => next.count = count, (name) => next.name = name, (state) => next.conversation = state)); }
   window.location.hostname = "localhost";
   await flush();
   assert.ok(worlds.slice(0, 2).every((state) => state.count === 2 && state.remotes.length === 1));
@@ -98,5 +105,40 @@ try {
   preview.pose.x = 40; for (const tick of [...timers.values()]) tick(); await flush();
   assert.equal(preview.remotes[0].x, 1, "The test neighbor does not follow");
   assert.equal((await previewConnection.say("멀리서는 안 들려요")).ok, false);
-  console.log("Presence integration passed with simulated Firebase transport: unique names, rename rejection, single optimistic/acknowledged messages, intentional repeats, preview-only test neighbor, group speech, distance/room filtering, cooldown, bubble expiry, disconnect cleanup, legacy exclusion and production/development player and speech isolation.");
-} finally { for (const stop of connections) stop(); Date.now = originalNow; delete globalThis.window; delete globalThis.document; delete globalThis.sessionStorage; }
+  previewConnection(); await flush();
+  window.location.hostname = "localhost"; window.location.pathname = "/";
+
+  const nameKey = "strawberry-farmer-name-v2";
+  memory.clear(); persistent.clear(); memory.set(nameKey, "다시 온 농부");
+  const first = world(0), firstConnection = connect(first, () => {}); connections.push(firstConnection); await flush();
+  assert.equal(first.name, "다시 온 농부");
+  assert.equal(persistent.get(nameKey), first.name, "The existing session nickname migrates to durable storage");
+  assert.equal(firstConnection.changeName("계속 같은 농부").ok, true); await flush();
+  // Reopen before the previous session has disconnected, with a fresh sessionStorage.
+  memory.clear();
+  const returning = world(1), returningConnection = connect(returning, () => {}); connections.push(returningConnection); await flush();
+  assert.equal(returning.name, "계속 같은 농부", "Reopening keeps the nickname even when the old presence has not expired");
+  assert.equal(first.name, returning.name);
+  assert.equal(persistent.get(nameKey), returning.name);
+
+  const events = new Map(); let resolveReady;
+  window.jeojat = { site: "pYUoDazk7y", user: null, ready: new Promise(resolve => { resolveReady = resolve; }), on: (type, callback) => { if (!events.has(type)) events.set(type, []); events.get(type).push(callback); } };
+  window.dispatchEvent(new Event("jeojat:ready"));
+  window.jeojat.user = { uid: "test-jeojat-farmer", nick: "저잣거리 농부" };
+  resolveReady(); await flush();
+  for (const tick of [...timers.values()]) tick(); await flush();
+  assert.equal(returning.name, "저잣거리 농부", "An embed that loads after the world supplies its nickname");
+  assert.equal(persistent.get(nameKey), "저잣거리 농부");
+  assert.ok(first.remotes.some(remote => remote.name === "저잣거리 농부"), "Other visitors receive the Jeojat nickname too");
+  window.jeojat.user = { uid: "test-jeojat-farmer", nick: "바꾼 저잣거리 이름" };
+  for (const callback of events.get("login")) callback(); await flush();
+  assert.equal(returning.name, "바꾼 저잣거리 이름", "Login after ready also updates the farmer");
+  firstConnection(); returningConnection(); await flush();
+  window.jeojat.user = { uid: "test-jeojat-farmer", nick: "종료 뒤 변경" };
+  for (const callback of events.get("login")) callback();
+  assert.equal(returning.name, "바꾼 저잣거리 이름", "Disposed worlds ignore SDK callbacks");
+  delete window.jeojat; memory.clear();
+  const reopened = world(0), reopenedConnection = connect(reopened, () => {}); connections.push(reopenedConnection); await flush();
+  assert.equal(reopened.name, "바꾼 저잣거리 이름", "Direct visits retain the last Jeojat nickname without the SDK");
+  console.log("Presence integration passed with simulated Firebase transport: durable nicknames, session migration, reconnect collisions, Jeojat ready/login events, late SDK loading, disposal, unique guest names, rename rejection, chat and environment isolation.");
+} finally { for (const stop of connections) stop(); Date.now = originalNow; Math.random = originalRandom; delete globalThis.window; delete globalThis.document; delete globalThis.sessionStorage; delete globalThis.localStorage; }
