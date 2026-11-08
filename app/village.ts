@@ -15,6 +15,7 @@ export function buildVillage(scene: THREE.Object3D) {
   const swaying: { mesh: THREE.Object3D; origin: number; phase: number }[] = [];
   const pondRipples: THREE.Mesh[] = [];
   const interactive: THREE.Object3D[] = [];
+  const placeLabels: { object: THREE.Object3D; text: string }[] = [];
   const seats: { x: number; z: number; angle: number }[] = [];
   const loungers: { x: number; z: number; angle: number }[] = [];
   const cutaways: { object: THREE.Mesh; x: number; z: number; w: number; d: number }[] = [];
@@ -34,12 +35,9 @@ export function buildVillage(scene: THREE.Object3D) {
     poses.forEach((p, i) => { dummy.position.set(...p.p as [number, number, number]); dummy.scale.set(...p.s as [number, number, number]); dummy.rotation.set(...(p.r || [0, 0, 0]) as [number, number, number]); dummy.updateMatrix(); result.setMatrixAt(i, dummy.matrix); });
     result.castShadow = true; result.receiveShadow = true; activeParent.add(result); return result;
   }
-  function label(text: string, p: number[], width = 4.1, color = "#405538", background = "#f5f0dc") {
-    const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = 128;
-    const ctx = canvas.getContext("2d")!; ctx.fillStyle = background; ctx.beginPath(); ctx.roundRect(2, 2, 636, 124, 28); ctx.fill();
-    ctx.fillStyle = color; ctx.font = '600 48px "Malgun Gothic", sans-serif'; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(text, 320, 66);
-    const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace;
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: true })); sprite.position.set(...p as [number, number, number]); sprite.scale.set(width, width / 5, 1); activeParent.add(sprite); return sprite;
+  function label(text: string, p: number[]) {
+    const object = new THREE.Object3D(); object.position.set(...p as [number, number, number]); activeParent.add(object);
+    placeLabels.push({ object, text }); return object;
   }
   function station(object: THREE.Object3D, name: Station) { object.userData.station = name; interactive.push(object); }
   const ground = mesh(new THREE.CircleGeometry(170, 80), m.grass, [0, -0.08, 0]); ground.rotation.x = -Math.PI / 2; ground.castShadow = false;
@@ -124,7 +122,7 @@ export function buildVillage(scene: THREE.Object3D) {
     const front = cz + length / 2;
     box([cx, .05, front + 1.1], [1.5, .1, 2.2], m.path);
     box([cx, 2.65, front + .025], [2.1, .46, .09], m.wood);
-    label("딸기 하우스", [cx, 5.25, cz], 4.3);
+    label("딸기 하우스", [cx, 5.25, cz]);
     for (const x of [cx - .8, cx + .8]) rod(new THREE.Vector3(x, .02, front), new THREE.Vector3(x, 2.5, front), 1.25);
     const matrices = frameMatrices.slice(frameStart), frames = new THREE.InstancedMesh(frameGeometry, m.white, matrices.length); matrices.forEach((matrix, i) => frames.setMatrixAt(i, matrix)); frames.castShadow = true; frames.receiveShadow = true; root.add(frames);
     batch(leafGeometry, leafMaterial, leaves.slice(leafStart)); batch(cylinderGeometry, m.steel, legs.slice(legStart)); batch(sphereGeometry, m.flower, flowers.slice(flowerStart)); batch(sphereGeometry, m.pollen, centers.slice(centerStart));
@@ -161,9 +159,9 @@ export function buildVillage(scene: THREE.Object3D) {
   box([21, 3.05, 3.1], [8.5, .12, 1.8], awning);
   for (let i = 0; i < 11; i++) if (i % 2) box([17.1 + i * .78, 3.12, 3.1], [.38, .03, 1.8], m.white);
   box([21, .08, 5.2], [10, .16, 5.0], standard("#bda784"));
-  const cafeSign = label("딸기 카페", [21, 5.45, .2], 5.0); station(cafeSign, "cafe");
+  const cafeSign = label("딸기 카페", [21, 5.45, .2]); station(cafeSign, "cafe");
   const menu = box([16.6, .95, 6.3], [1.15, 1.7, .12], m.darkwood); menu.rotation.y = -.15; station(menu, "cafe");
-  const menuLabel = label("카페 메뉴", [16.6, 1.05, 6.4], 2.5); station(menuLabel, "cafe");
+  const menuLabel = label("카페 메뉴", [16.6, 1.05, 6.4]); station(menuLabel, "cafe");
   const cupMaterial = standard("#f3d3c7");
   for (const x of [19, 23]) {
     cylinder([x, .82, 5.4], [.85, .12, .85], m.wood); cylinder([x, .4, 5.4], [.07, .8, .07], m.steel);
@@ -183,7 +181,7 @@ export function buildVillage(scene: THREE.Object3D) {
   const workshopRoof = box([0, 3.6, 19.4], [13, .2, 7.3], packingRoof); workshopRoof.rotation.x = -.06; station(workshopRoof, "sorting"); cutaways.push({ object: workshopRoof, x: 0, z: 20, w: 17, d: 12 });
   box([0, .015, 20.2], [12.5, .08, 7.5], standard("#c9c5af"));
   box([0, .05, 25], [3.1, .1, 4.5], m.path);
-  const workshopLabel = label("딸기 선별장", [0, 5.2, 19], 5.8); station(workshopLabel, "sorting");
+  const workshopLabel = label("딸기 선별장", [0, 5.2, 19]); station(workshopLabel, "sorting");
   const sortingTable = box([0, .9, 20.8], [8.8, .18, 1.6], m.white); station(sortingTable, "sorting"); obstacles.push({ x: 0, z: 20.8, w: 9.1, d: 1.9 });
   for (const x of [-3.8, 0, 3.8]) for (const dz of [-.55, .55]) box([x, .44, 20.8 + dz], [.09, .9, .09], m.steel);
   for (let i = 0; i < 7; i++) box([-3.4 + i * 1.12, 1.12, 20.8], [.85, .23, 1.1], i < 3 ? crate : standard("#d4d9ca"));
@@ -200,7 +198,7 @@ export function buildVillage(scene: THREE.Object3D) {
   for (let i = 0; i < 11; i++) box([-33, .665, 17.3 + i * .38], [2.85, .025, .025], m.darkwood);
   box([-33, .71, 19], [2.2, .1, 3.4], standard("#d8c7a5")); box([-33, .83, 17.7], [1.2, .22, .55], m.white);
   for (const x of [-34.1, -31.9]) for (const z of [17.5, 20.9]) box([x, .26, z], [.15, .52, .15], m.darkwood);
-  obstacles.push({ x: -33, z: 19.2, w: 2.9, d: 4.2 }); loungers.push({ x: -33, z: 19.2, angle: 0 }); label("평상", [-33, 2.7, 19.2], 2.7);
+  obstacles.push({ x: -33, z: 19.2, w: 2.9, d: 4.2 }); loungers.push({ x: -33, z: 19.2, angle: 0 }); label("평상", [-33, 2.7, 19.2]);
 
   // Rural utility poles and wires sit at the edges, away from the footpaths.
   const cableMaterial = new THREE.LineBasicMaterial({ color: "#71826b", transparent: true, opacity: .5 });
@@ -208,5 +206,5 @@ export function buildVillage(scene: THREE.Object3D) {
     const z = -30 + i * 15; cylinder([-35.5, 3.4, z], [.09, 6.8, .09], standard("#aaa892")); box([-35.5, 6.4, z], [1.9, .09, .1], m.darkwood);
     if (i < 4) for (const dx of [-.65, .65]) { const points = []; for (let k = 0; k <= 12; k++) { const t = k / 12; points.push(new THREE.Vector3(-35.5 + dx, 6.45 - Math.sin(t * Math.PI) * .65, z + t * 15)); } scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), cableMaterial)); }
   }
-  return { obstacles, berries, beds, swaying, pondRipples, interactive, cutaways, seats, loungers, rooms };
+  return { obstacles, berries, beds, swaying, pondRipples, interactive, cutaways, seats, loungers, rooms, placeLabels };
 }

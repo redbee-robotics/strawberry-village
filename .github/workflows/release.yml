@@ -1,0 +1,61 @@
+name: Release to Firebase Hosting
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-hosting-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Verify, build and deploy the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the released version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check types
+        run: node node_modules/typescript/bin/tsc --noEmit
+
+      - name: Validate inventory
+        run: node scripts/validate-inventory.mjs
+
+      - name: Validate click navigation
+        run: node scripts/validate-navigation.mjs
+
+      - name: Build the static site
+        run: npm run build
+
+      - name: Check Firebase deployment credentials
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STRAWBERRY_VILLAGE }}
+        run: |
+          if [[ -z "$FIREBASE_SERVICE_ACCOUNT" ]]; then
+            echo "::error::Set the FIREBASE_SERVICE_ACCOUNT_STRAWBERRY_VILLAGE Actions secret before publishing a release. See docs/RELEASES.md."
+            exit 1
+          fi
+
+      - name: Deploy Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STRAWBERRY_VILLAGE }}
+          projectId: strawberry-village
+          target: village
+          channelId: live
