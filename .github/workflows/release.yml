@@ -88,3 +88,6 @@ jobs:
           projectId: strawberry-village
           target: village
           channelId: live
+
+      - name: Verify live Jeojat integration and iframe response headers
+        run: node scripts/validate-jeojat.mjs https://strawberry-village.web.app
