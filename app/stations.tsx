@@ -21,7 +21,6 @@ export function Inventory({ saved }: { saved: FarmSave }) {
     <div className="inventory-summary"><ShoppingBasket size={24} /><strong>{saved.raw.length}<small>알</small></strong><span>바구니 속 딸기</span></div>
     <div className="carried-basket readonly-basket">{saved.raw.length ? saved.raw.map((berry) => <div className="basket-fruit" key={berry.id}><Fruit grade={berry.grade} size={43} /><span>{berry.weight}g</span></div>) : <div className="basket-empty"><ShoppingBasket size={30} /><span>아직 바구니가 비어 있어요.</span><small>하우스에서 딸기를 수확해 담아보세요.</small></div>}</div>
     <p className="inventory-instruction">선별장에 걸어 들어가면<br />딸기를 골라 팩에 담을 수 있어요.</p>
-    <p className="basket-note">지금까지 {saved.harvested}알 수확 · {saved.watered}번 물 주기</p>
   </>;
 }
 
@@ -30,7 +29,6 @@ export function Bag({ saved }: { saved: FarmSave }) {
     <div className="inventory-summary"><Package size={25} /><strong>{saved.boxes}<small>팩</small></strong><span>가방에 담긴 딸기 팩</span></div>
     <div className="bag-packs">{saved.boxes ? Array.from({ length: Math.min(saved.boxes, 12) }, (_, i) => { const size = packBerryCount(saved, i); return <div className="bag-pack" key={i}><div className={`mini-punnet pack-size-${size}`}>{Array.from({ length: size }, (_, n) => <Fruit key={n} size={size > 4 ? 14 : 22} />)}</div><span>딸기 {size}알 · 1팩</span></div>; }) : <div className="basket-empty"><Package size={32} /><span>아직 포장한 팩이 없어요.</span><small>바구니의 딸기를 선별장에서 포장해 주세요.</small></div>}</div>
     {saved.boxes > 12 && <p className="basket-note">이 밖에도 {saved.boxes - 12}팩이 가방에 있어요.</p>}
-    <p className="inventory-instruction">완성된 팩은 바구니에서 가방으로 옮겨져요.</p>
   </>;
 }
 
@@ -40,6 +38,7 @@ type Props = {
   update: (updater: (state: FarmSave) => FarmSave) => void;
   notify: (text: string) => void;
   served: (name: string) => void;
+  heldDrink: string;
 };
 const drinks = [
   { id: "latte", name: "딸기 라떼", english: "STRAWBERRY LATTE", cost: 2, description: "달콤한 딸기와 부드러운 우유", color: "#e8a496" },
@@ -47,7 +46,7 @@ const drinks = [
   { id: "tea", name: "딸기 차", english: "WARM STRAWBERRY TEA", cost: 1, description: "논길 바람을 녹이는 따뜻한 차", color: "#c77e61" },
 ];
 
-export default function StationPanel({ station, saved, update, notify, served }: Props) {
+export default function StationPanel({ station, saved, update, notify, served, heldDrink }: Props) {
   const [feedback, setFeedback] = useState("");
   const [selected, setSelected] = useState<PackSlots>(emptyPackSlots);
   type FruitDrag = { id: string; pointer: number; startX: number; startY: number; x: number; y: number; active: boolean };
@@ -119,6 +118,7 @@ export default function StationPanel({ station, saved, update, notify, served }:
   }
   function order(drink: typeof drinks[number]) {
     if (orderGuard.current) return;
+    if (heldDrink) { setFeedback("들고 있는 음료를 먼저 마셔 주세요."); return; }
     const next = spendCafeBerries(saved, drink.cost);
     if (!next) { setFeedback("수확한 딸기가 조금 더 필요해요."); return; }
     orderGuard.current = true;

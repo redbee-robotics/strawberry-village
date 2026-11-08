@@ -121,11 +121,11 @@
 .visitor-links{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}.visitor-links line{stroke:#69835c;stroke-width:1;opacity:.65}
 
 /* Keep the map at the lower edge; contextual actions occupy the row above it. */
-.first-person .world-wash{display:none}
+.follow-camera .world-wash{display:none}
 .farm-app .village-map{bottom:max(18px,calc(env(safe-area-inset-bottom) + 10px));max-height:calc(100dvh - 100px);overflow-y:auto}
-.first-person .mouse-guide{position:fixed;left:36px;bottom:76px}
+.follow-camera .mouse-guide{position:fixed;left:36px;bottom:76px}
 @media(max-width:760px){
-  .first-person .bottom-bar{bottom:max(66px,calc(env(safe-area-inset-bottom) + 58px))}
-  .first-person:has(.village-map:not(.is-minimized)) .bottom-bar{bottom:max(300px,calc(env(safe-area-inset-bottom) + 292px))}
+  .follow-camera .bottom-bar{bottom:max(66px,calc(env(safe-area-inset-bottom) + 58px))}
+  .follow-camera:has(.village-map:not(.is-minimized)) .bottom-bar{bottom:max(300px,calc(env(safe-area-inset-bottom) + 292px))}
 }
-.first-person:has(.village-map:not(.is-minimized)) .mouse-guide{display:none}
+.follow-camera:has(.village-map:not(.is-minimized)) .mouse-guide{display:none}

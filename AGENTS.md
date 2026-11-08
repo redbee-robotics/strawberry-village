@@ -20,7 +20,8 @@
 - `node node_modules/typescript/bin/tsc --noEmit`로 타입을 검사한다.
 - 재고 처리 변경은 `node scripts/validate-inventory.mjs`로 검증한다.
 - 이동 경로 변경은 `node scripts/validate-navigation.mjs`로 검증한다.
-- 1인칭 시점과 카페 외관 변경은 `node scripts/validate-first-person.mjs`와 `node scripts/validate-cafe.mjs`로 검증한다.
+- 추적 카메라와 카페 외관 변경은 `node scripts/validate-follow-camera.mjs`와 `node scripts/validate-cafe.mjs`로 검증한다.
+- 음료 등 캐릭터 행동 변경은 `node scripts/validate-world-actions.mjs`로 확인한다.
 - 닉네임·공유 좌표·등산 지형 변경은 `node scripts/validate-village.mjs`로 검증한다.
 - 근거리 대화 변경은 `node scripts/validate-chat.mjs`와 `node scripts/validate-presence.mjs`로 확인한다. 실제 Firebase 규칙 검증과 배포 여부는 별도로 기록한다.
 - 접속 환경 분리와 만료 처리는 `node scripts/validate-presence-isolation.mjs`로 검증한다.

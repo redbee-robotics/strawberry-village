@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { firstPersonForward, firstPersonFrame, readFirstPersonView, turnFirstPerson, zoomFirstPerson, type FirstPersonView } from "./first-person";
+import { followForward, followFrame, readFollowView, turnFollowView, zoomFollowView, constrainFollowEye, type FollowView, type CameraBounds } from "./follow-camera";
 import { buildVillage, HOUSE_CENTERS, type Station, type RoomId } from "./village";
 import type { VillageWeather } from "./weather";
 import { createNavigation, type GroundPoint } from "./navigation";
@@ -8,14 +8,14 @@ import { createVisitorLabels } from "./visitor-labels";
 import { canHear } from "./chat";
 import { groundHeight, MAP_BOUNDS } from "./terrain";
 
-export type FarmAction = "walk" | "water" | "harvest";
+export type FarmAction = "walk" | "water" | "harvest" | "drink";
 export type FarmPlace = "yard" | "greenhouse" | Station;
 export type RemotePlayer = { id: string; name: string; x: number; z: number; angle: number; action: string; basket: number; room?: RoomId; speech?: string };
 export type FarmAccess = { water: boolean; harvest: boolean; sit: boolean; lie: boolean; posture: "stand" | "sit" | "lie"; inspect: boolean; inspecting: boolean };
 type Outcome = "done" | "empty" | "cancelled" | "far";
 export type FarmWorld = {
   dispose: () => void;
-  perform: (action: "water" | "harvest") => Promise<Outcome>;
+  perform: (action: "water" | "harvest" | "drink") => Promise<Outcome>;
   cancel: () => void;
   pose: (posture: "sit" | "lie") => void;
   setBasket: (count: number) => void;
@@ -48,12 +48,12 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.03;
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute("aria-label", "1인칭 딸기 농장. 바닥을 클릭하거나 터치한 곳으로 걷기. 방향키로 걷기, 스페이스바로 점프. 마우스 또는 손가락 드래그로 둘러보기. 휠이나 핀치로 확대와 축소.");
+  renderer.domElement.setAttribute("aria-label", "캐릭터를 따라가는 가까운 3인칭 딸기 농장. 바닥을 클릭하거나 터치한 곳으로 걷기. 방향키로 걷기, 스페이스바로 점프. 마우스 또는 손가락 드래그로 캐릭터 주위를 회전. 휠이나 핀치로 가까운 범위에서 확대와 축소.");
   renderer.domElement.setAttribute("role", "application");
   host.appendChild(renderer.domElement);
 
   const camera = new THREE.PerspectiveCamera(78, 1, 0.06, 240);
-  let view = readFirstPersonView();
+  let view = readFollowView();
   const hemi = new THREE.HemisphereLight("#fcf8ec", "#708466", 2.1); scene.add(hemi);
   const sunlight = new THREE.DirectionalLight("#fff1d9", 3.0);
   sunlight.position.set(-34, 65, 24); sunlight.castShadow = true;
@@ -84,6 +84,14 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   const worldRoot = new THREE.Group(); scene.add(worldRoot);
   const { obstacles, berries, beds, swaying, pondRipples, seats, loungers, rooms, cafeInterior, cafeExteriorDoor, placeLabels, terrain } = buildVillage(worldRoot);
   const navigation = createNavigation(obstacles, MAP_BOUNDS);
+  const cameraBlockers: { object: THREE.Object3D; bounds: CameraBounds }[] = [];
+  worldRoot.updateMatrixWorld(true);
+  worldRoot.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) || object instanceof THREE.InstancedMesh) return;
+    if (!["BoxGeometry", "ExtrudeGeometry"].includes(object.geometry.type)) return;
+    if ((Array.isArray(object.material) ? object.material : [object.material]).some((m) => m.transparent)) return;
+    cameraBlockers.push({ object, bounds: new THREE.Box3().setFromObject(object) });
+  });
   const buildingAreas = [
     ...HOUSE_CENTERS.map(([x, z], index) => ({ room: `house-${index}` as RoomId, x, z, w: 6.8, d: 12.7 })),
     { room: "cafe" as RoomId, x: 21, z: -.7, w: 8.4, d: 6.3 },
@@ -104,7 +112,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     roomScenes[id] = roomScene;
   });
   let activeRoom: RoomId = "outside", activeScene = scene;
-  let inspecting = false, inspectView: FirstPersonView | null = null;
+  let inspecting = false, inspectView: FollowView | null = null;
 
   function mesh(geo: THREE.BufferGeometry, m: THREE.Material, p: number[], s = [1, 1, 1], parent: THREE.Object3D = scene) {
     const object = new THREE.Mesh(geo, m); object.position.set(p[0], p[1], p[2]); object.scale.set(s[0], s[1], s[2]);
@@ -124,7 +132,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     batch.castShadow = true; batch.receiveShadow = true; parent.add(batch); return batch;
   }
   // A small farmer made from rounded, tactile forms.
-  const farmer = new THREE.Group(); farmer.position.set(0, 0, 9); farmer.scale.setScalar(1.15); farmer.rotation.y = Math.PI; farmer.visible = false; scene.add(farmer);
+  const farmer = new THREE.Group(); farmer.position.set(0, 0, 9); farmer.scale.setScalar(1.15); farmer.rotation.y = Math.PI; farmer.visible = true; scene.add(farmer);
   const postureGroup = new THREE.Group(); postureGroup.name = "posture"; farmer.add(postureGroup);
   const body = new THREE.Group(); postureGroup.add(body);
   ball([0, 0.91, 0], [0.28, 0.35, 0.2], mat.shirt, body);
@@ -191,7 +199,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   const rain = new THREE.LineSegments(precipitationGeometry, new THREE.LineBasicMaterial({ color: "#d4e7eb", transparent: true, opacity: .5 })); rain.visible = false; scene.add(rain);
   const snow = new THREE.Points(precipitationGeometry, new THREE.PointsMaterial({ color: "#f2f6ed", size: .11, transparent: true, opacity: .85 })); snow.visible = false; scene.add(snow);
   let reducedMotion = false, animationFrame = 0, previousTime = performance.now(), disposed = false;
-  let currentAction: { type: "water" | "harvest"; resolve: (value: Outcome) => void; berry?: typeof berries[number]; phase: "walking" | "acting"; time: number } | null = null;
+  let currentAction: { type: "water" | "harvest" | "drink"; resolve: (value: Outcome) => void; berry?: typeof berries[number]; phase: "walking" | "acting"; time: number } | null = null;
   let markerTime = 0;
   let walkPath: GroundPoint[] = [];
   let jumpHeight = 0, jumpSpeed = 0;
@@ -211,14 +219,23 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     return navigation.isWalkable({ x, z });
   }
   function stopWalking() { walkPath = []; marker.visible = false; }
-  function cancel() { stopWalking(); currentAction?.resolve("cancelled"); currentAction = null; spray.visible = false; can.visible = false; }
+  function cancel() { stopWalking(); currentAction?.resolve("cancelled"); currentAction = null; spray.visible = false; can.visible = false; arms[1].rotation.z = 0.16; cup.rotation.x = 0; }
   function updateCamera() {
-    const { eye, target, fov } = firstPersonFrame(farmer.position, posture, view, host.clientWidth < 640);
+    const frame = followFrame(farmer.position, posture, view, host.clientWidth < 640, activeRoom !== "outside");
+    const visibleBounds = cameraBlockers.filter(({ object }) => {
+      for (let parent: THREE.Object3D | null = object; parent; parent = parent.parent) {
+        if (!parent.visible) return false;
+        if (parent === activeScene) return true;
+      }
+      return false;
+    }).map(({ bounds }) => bounds);
+    const { target, fov } = frame;
+    const eye = constrainFollowEye(target, frame.eye, visibleBounds, activeRoom === "outside" ? groundHeight : undefined);
     camera.position.set(eye.x, eye.y, eye.z);
     camera.lookAt(target.x, target.y, target.z);
     if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
   }
-  function resetCamera() { stopInspecting(); view = readFirstPersonView(); updateCamera(); }
+  function resetCamera() { stopInspecting(); view = readFollowView(); updateCamera(); }
   function stopInspecting() {
     inspecting = false;
     if (inspectView) { view = inspectView; inspectView = null; }
@@ -254,20 +271,20 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
         tap.moved = true;
       }
       stopWalking();
-      view = turnFirstPerson(view, event.clientX - previous.x, event.clientY - previous.y);
+      view = turnFollowView(view, event.clientX - previous.x, event.clientY - previous.y);
     } else if (pointers.size === 2) {
       tap = null; stopWalking();
       const after = [...pointers.values()];
       const oldDistance = Math.hypot(before[0].x - before[1].x, before[0].y - before[1].y);
       const newDistance = Math.hypot(after[0].x - after[1].x, after[0].y - after[1].y);
-      if (oldDistance > 0 && newDistance > 0) view = zoomFirstPerson(view, oldDistance / newDistance);
-      view = turnFirstPerson(view, (event.clientX - previous.x) / 2, (event.clientY - previous.y) / 2);
+      if (oldDistance > 0 && newDistance > 0) view = zoomFollowView(view, oldDistance / newDistance);
+      view = turnFollowView(view, (event.clientX - previous.x) / 2, (event.clientY - previous.y) / 2);
     }
     updateCamera();
   }
   const wheel = (event: WheelEvent) => {
     event.preventDefault();
-    if (!paused) { view = zoomFirstPerson(view, Math.exp(Math.max(-100, Math.min(100, event.deltaY)) * 0.002)); updateCamera(); }
+    if (!paused) { view = zoomFollowView(view, Math.exp(Math.max(-100, Math.min(100, event.deltaY)) * 0.002)); updateCamera(); }
   };
   const contextMenu = (event: MouseEvent) => event.preventDefault();
   function pointerUp(event: PointerEvent) {
@@ -314,7 +331,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   let lastPositionSave = 0, lastPositionJson = "";
   function savePosition() {
     const point = poseExit || farmer.position;
-    const value = JSON.stringify({ version: 2, x: point.x, z: point.z, angle: view.yaw, room: activeRoom, posture, view: inspectView || view });
+    const value = JSON.stringify({ version: 2, x: point.x, z: point.z, angle: farmer.rotation.y, room: activeRoom, posture, cameraMode: "follow", view: inspectView || view });
     if (value === lastPositionJson) return;
     try { localStorage.setItem(positionKey, value); lastPositionJson = value; } catch { /* Storage can be unavailable. */ }
   }
@@ -328,8 +345,8 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       farmer.position.set(point.x, groundHeight(point.x, point.z), point.z); farmer.rotation.y = saved.angle;
       const area = buildingAreas.find((building) => Math.abs(point.x - building.x) < building.w / 2 && Math.abs(point.z - building.z) < building.d / 2);
       setRoom(area?.room || "outside");
-      // Keep the saved location and inventory; older orbit-camera positions are not first-person views.
-      view = readFirstPersonView(saved.view);
+      // Keep the saved location and heading, but reset the previous camera mode to a close orbit.
+      view = readFollowView(saved.cameraMode === "follow" ? saved.view : { yaw: saved.view?.yaw ?? saved.angle });
       if (saved.posture === "sit" || saved.posture === "lie") {
         const spot = saved.posture === "sit" ? nearestSeat() : nearestLounger();
         if (spot) { poseExit = farmer.position.clone(); farmer.position.set(spot.x, 0, spot.z); farmer.rotation.y = spot.angle; posture = saved.posture; }
@@ -356,7 +373,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     let moving = false;
     const keyboard = new THREE.Vector3();
     if (!paused && pressed.size) {
-      const heading = firstPersonForward(view), forward = new THREE.Vector3(heading.x, 0, heading.z), right = new THREE.Vector3().crossVectors(forward, up);
+      const heading = followForward(view), forward = new THREE.Vector3(heading.x, 0, heading.z), right = new THREE.Vector3().crossVectors(forward, up);
       if (pressed.has("arrowup")) keyboard.add(forward);
       if (pressed.has("arrowdown")) keyboard.sub(forward);
       if (pressed.has("arrowright")) keyboard.add(right);
@@ -381,6 +398,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     const swing = moving ? Math.sin(t * 12) * 0.48 : 0;
     legs[0].rotation.x = swing; legs[1].rotation.x = -swing; arms[0].rotation.x = -swing * 0.65; arms[1].rotation.x = swing * 0.65;
     body.position.y = moving && !reducedMotion ? Math.abs(Math.sin(t * 12)) * 0.055 : 0;
+    arms[1].rotation.z = 0.16; cup.rotation.x = 0;
     if (posture === "sit") { legs[0].rotation.x = legs[1].rotation.x = -1.3; body.position.y = -.08; }
     if (posture === "lie") { postureGroup.rotation.x = -Math.PI / 2; postureGroup.position.set(0, .85, .8); }
     if (!paused && currentAction) {
@@ -399,10 +417,15 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
           waterPositions[i * 3] = p.x + Math.sin(i * 12.7) * f * 0.15; waterPositions[i * 3 + 1] = p.y; waterPositions[i * 3 + 2] = p.z + Math.cos(i * 8.1) * f * 0.15;
         }
         waterGeo.attributes.position.needsUpdate = true;
+      } else if (currentAction.type === "drink") {
+        const lift = reducedMotion ? 1 : Math.min(1, elapsed / 350, Math.max(0, (1800 - elapsed) / 300));
+        arms[1].rotation.x = -1.8 * lift; arms[1].rotation.z = 0.16 + 0.44 * lift;
+        cup.rotation.x = 1.5 * lift;
       } else { arms[0].rotation.x = -1.0; arms[1].rotation.x = -0.8; }
-      if (elapsed > (currentAction.type === "water" ? 2100 : 1150)) {
+      if (elapsed > (currentAction.type === "drink" ? 1800 : currentAction.type === "water" ? 2100 : 1150)) {
         if (currentAction.type === "harvest" && currentAction.berry) { currentAction.berry.ready = false; currentAction.berry.mesh.visible = false; }
         if (currentAction.type === "water") berries.forEach((b) => { if (!b.ready && !b.growAt) b.growAt = now + 6000; });
+        if (currentAction.type === "drink") { drinkHeld = false; cup.rotation.x = 0; }
         currentAction.resolve("done"); currentAction = null; spray.visible = false; can.visible = false; arms[1].rotation.z = 0.16;
       }
     }
@@ -446,8 +469,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
         precipitationPositions[i * 6 + 3] = x + (snowing ? .025 : windSpeed * .03); precipitationPositions[i * 6 + 4] = y + (snowing ? .025 : .65); precipitationPositions[i * 6 + 5] = drop.z;
       }); precipitationGeometry.attributes.position.needsUpdate = true;
     }
-    farmer.rotation.y = view.yaw;
-    updateCamera(); renderer.render(activeScene, camera); labels.update(activeRoom === "outside"); visitorLabels.update(activeScene, (object) => object !== farmer && (object !== clerk.object || activeRoom === "cafe"));
+    updateCamera(); renderer.render(activeScene, camera); labels.update(activeRoom === "outside"); visitorLabels.update(activeScene, (object) => object !== clerk.object || activeRoom === "cafe");
     if (now - lastPositionSave > 1000) { savePosition(); lastPositionSave = now; }
     animationFrame = requestAnimationFrame(tick);
   }
@@ -455,7 +477,13 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
 
   return {
     perform(type) {
-      cancel(); 
+      cancel(); pressed.clear();
+      if (type === "drink") {
+        if (!drinkHeld) return Promise.resolve("empty");
+        if (posture === "lie") standUp();
+        if (inspecting) stopInspecting();
+        return new Promise<Outcome>((resolve) => { currentAction = { type, resolve, phase: "acting", time: performance.now() }; });
+      }
       const candidates = berries.filter((b) => type === "water" || b.ready).sort((a, b) => Math.hypot(a.x - farmer.position.x, a.z - farmer.position.z) - Math.hypot(b.x - farmer.position.x, b.z - farmer.position.z));
       const berry = candidates[0]; if (!berry) return Promise.resolve("empty");
       if (posture !== "stand" || !nearBed() || (type === "harvest" && Math.hypot(berry.x - farmer.position.x, berry.z - farmer.position.z) >= 1.8)) return Promise.resolve("far");
@@ -471,9 +499,9 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     setBasket(count) { basketCount = count; },
     setBag(count) { packed.visible = count > 0; },
     setDrink(value) { drinkHeld = value; },
-    setPaused(value) { paused = value; if (value) clearKeys(); },
+    setPaused(value) { paused = value; if (value) { clearKeys(); if (currentAction?.type === "drink") cancel(); } },
     setName(name) { visitorLabels.setName(farmer, name); },
-    getPose() { return { x: farmer.position.x, z: farmer.position.z, angle: view.yaw, action: posture !== "stand" ? posture : paused ? zoneLatched || "walk" : currentAction?.type || "walk", basket: basketCount, room: activeRoom }; },
+    getPose() { return { x: farmer.position.x, z: farmer.position.z, angle: farmer.rotation.y, action: posture !== "stand" ? posture : paused ? zoneLatched || "walk" : (currentAction?.type === "drink" ? "cafe" : currentAction?.type) || "walk", basket: basketCount, room: activeRoom }; },
     nearbyVisitors() { return [...remotePeople].filter(([, remote]) => canHear({ x: farmer.position.x, z: farmer.position.z, room: activeRoom }, { x: remote.target.x, z: remote.target.z, room: remote.room })).sort(([, a], [, b]) => a.target.distanceTo(farmer.position) - b.target.distanceTo(farmer.position)).map(([id, remote]) => ({ id, name: remote.name })); },
     setLocalSpeech(text) { visitorLabels.setSpeech(farmer, text); },
     setPlayers(players) {
@@ -497,7 +525,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       const bed = [...beds].sort((a, b) => Math.hypot(a.x - farmer.position.x, a.z - farmer.position.z) - Math.hypot(b.x - farmer.position.x, b.z - farmer.position.z))[0];
       inspectView = { ...view }; inspecting = true;
       const dx = bed.x - farmer.position.x, dz = bed.z - farmer.position.z;
-      view = readFirstPersonView({ yaw: Math.atan2(dx, dz), pitch: Math.atan2(1.35 - camera.position.y, Math.hypot(dx, dz)), zoom: 0.7 });
+      view = readFollowView({ yaw: Math.atan2(dx, dz), pitch: -0.55, distance: 3 });
       updateCamera();
     },
     setWeather(weather) {
@@ -510,7 +538,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       Object.entries(roomScenes).forEach(([id, room]) => { if (id.startsWith("house")) (room.background as THREE.Color).set(night ? "#5c6d75" : "#d8dfd1"); });
     },
     setReducedMotion(value) { reducedMotion = value; if (value) swaying.forEach((s) => s.mesh.rotation.z = s.origin); },
-    zoom(factor) { view = zoomFirstPerson(view, factor); updateCamera(); },
+    zoom(factor) { view = zoomFollowView(view, factor); updateCamera(); },
     resetCamera,
     dispose() {
       savePosition(); disposed = true; cancel(); cancelAnimationFrame(animationFrame); resizeObserver.disconnect(); labels.dispose(); visitorLabels.dispose();
