@@ -266,11 +266,10 @@ export default function Farm() {
 
     <div className="inventory-cards">
       <button className="basket-card" onClick={() => setModal("basket")} aria-label={`바구니, 딸기 ${saved.raw.length}알`}>
-        <span className="basket-illustration"><ShoppingBasket size={27} strokeWidth={1.35} /><span className="tiny-berry"><Berry size={14} /></span></span>
+        <span className="basket-illustration" aria-hidden="true"><ShoppingBasket size={27} strokeWidth={1.35} /><span className="tiny-berry"><Berry size={14} /></span></span>
         <span className="basket-copy"><small>바구니</small><strong>{saved.raw.length}<span>알</span></strong></span>
-        <ArrowUpRight size={15} className="basket-arrow" />
       </button>
-      <button className="bag-card" onClick={() => setModal("bag")} aria-label={`가방, 딸기 ${saved.boxes}팩`}><Backpack size={28} strokeWidth={1.4} /><span><small>가방</small><strong>{saved.boxes}<span>팩</span></strong></span><ArrowUpRight size={15} /></button>
+      <button className="bag-card" onClick={() => setModal("bag")} aria-label={`가방, 딸기 ${saved.boxes}팩`}><Backpack size={28} strokeWidth={1.4} aria-hidden="true" /><span><small>가방</small><strong>{saved.boxes}<span>팩</span></strong></span></button>
     </div>
     <footer className="bottom-bar">
       {contextActions.length > 0 && <nav ref={dockRef} className="action-dock village-dock" aria-label="농장에서 할 일">
