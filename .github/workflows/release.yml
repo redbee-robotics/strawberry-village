@@ -60,7 +60,7 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STRAWBERRY_VILLAGE }}
         run: |
           if [[ -z "$FIREBASE_SERVICE_ACCOUNT" ]]; then
-            echo "::error::Set the FIREBASE_SERVICE_ACCOUNT_STRAWBERRY_VILLAGE Actions secret before publishing a release. See docs/RELEASES.md."
+            echo "::error::Deployment credentials are unavailable. Contact a repository maintainer."
             exit 1
           fi
 
