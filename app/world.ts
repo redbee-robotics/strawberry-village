@@ -5,11 +5,12 @@ import type { VillageWeather } from "./weather";
 import { createNavigation, type GroundPoint } from "./navigation";
 import { createPlaceLabels } from "./place-labels";
 import { createVisitorLabels } from "./visitor-labels";
+import { canHear } from "./chat";
 import { groundHeight, MAP_BOUNDS } from "./terrain";
 
 export type FarmAction = "walk" | "water" | "harvest";
 export type FarmPlace = "yard" | "greenhouse" | Station;
-export type RemotePlayer = { id: string; name: string; x: number; z: number; angle: number; action: string; basket: number; room?: RoomId };
+export type RemotePlayer = { id: string; name: string; x: number; z: number; angle: number; action: string; basket: number; room?: RoomId; speech?: string };
 export type FarmAccess = { water: boolean; harvest: boolean; sit: boolean; lie: boolean; posture: "stand" | "sit" | "lie"; inspect: boolean; inspecting: boolean };
 type Outcome = "done" | "empty" | "cancelled" | "far";
 export type FarmWorld = {
@@ -24,6 +25,8 @@ export type FarmWorld = {
   setName: (name: string) => void;
   getPose: () => { x: number; z: number; angle: number; action: string; basket: number; room: RoomId };
   setPlayers: (players: RemotePlayer[]) => void;
+  nearbyVisitors: () => { id: string; name: string }[];
+  setLocalSpeech: (text: string) => void;
   setWeather: (weather: VillageWeather) => void;
   inspectBed: () => void;
   setReducedMotion: (value: boolean) => void;
@@ -45,7 +48,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.03;
   renderer.domElement.tabIndex = 0;
-  renderer.domElement.setAttribute("aria-label", "3D 딸기 농장. 클릭하거나 터치한 곳으로 걷기. 방향키로도 걷기. 한 손가락 드래그로 화면 회전, 두 손가락 드래그로 화면 이동, 핀치로 확대와 축소. 마우스는 우클릭 드래그로 화면 이동, 휠로 확대와 축소.");
+  renderer.domElement.setAttribute("aria-label", "3D 딸기 농장. 클릭하거나 터치한 곳으로 걷기. 방향키로도 걷기. 한 손가락 드래그로 화면 이동, 두 손가락 드래그로 화면 회전, 핀치로 확대와 축소. 마우스는 좌클릭 드래그로 화면 이동, 우클릭 드래그로 화면 회전, 휠로 확대와 축소.");
   renderer.domElement.setAttribute("role", "application");
   host.appendChild(renderer.domElement);
 
@@ -53,8 +56,8 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.07;
   controls.enablePan = true; controls.screenSpacePanning = true; controls.panSpeed = .85; controls.zoomSpeed = .85;
-  controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
-  controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }; controls.minDistance = 10; controls.maxDistance = 145;
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }; controls.minDistance = 10; controls.maxDistance = 145;
   controls.minPolarAngle = 0.25; controls.maxPolarAngle = 1.42;
   controls.target.set(0, 0.9, 0);
   camera.position.set(62, 49, 67);
@@ -99,7 +102,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   Object.keys(rooms).forEach((id) => {
     const roomScene = new THREE.Scene(); roomScene.background = new THREE.Color(id.startsWith("house") ? "#d8dfd1" : "#e5dfce");
     roomScene.add(new THREE.HemisphereLight("#fff9e9", "#929e83", 2.5));
-    const isHouse = id.startsWith("house"), center = isHouse ? HOUSE_CENTERS[Number(id.slice(-1))] : id === "cafe" ? [21, -.7] : [0, 19.5];
+    const isHouse = id.startsWith("house"), center = isHouse ? HOUSE_CENTERS[Number(id.slice(6))] : id === "cafe" ? [21, -.7] : [0, 19.5];
     const light = new THREE.PointLight(isHouse ? "#fffde6" : "#ffe5b6", isHouse ? 24 : 35, 20, 2); light.position.set(center[0], isHouse ? 4 : 3.1, center[1]); roomScene.add(light);
     if (isHouse) {
       const film = material("#dce4d8", { transparent: true, opacity: .7, side: THREE.DoubleSide });
@@ -211,8 +214,8 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
   const nearestSeat = () => seats.find((seat) => Math.hypot(seat.x - farmer.position.x, seat.z - farmer.position.z) < 1.6);
   const nearestLounger = () => loungers.find((space) => Math.hypot(space.x - farmer.position.x, space.z - farmer.position.z) < 3.0);
   function standUp() { posture = "stand"; postureGroup.rotation.x = 0; postureGroup.position.set(0, 0, 0); if (poseExit) { farmer.position.copy(poseExit); poseExit = null; } }
-  const nearBed = () => beds.some((bed) => Math.hypot(Math.max(0, Math.abs(farmer.position.x - bed.x) - bed.w / 2), Math.max(0, Math.abs(farmer.position.z - bed.z) - bed.d / 2)) < 1.15);
-  const nearRipe = () => berries.some((berry) => berry.ready && Math.hypot(berry.x - farmer.position.x, berry.z - farmer.position.z) < 1.8);
+  const nearBed = () => activeRoom.startsWith("house-") && beds.some((bed) => Math.hypot(Math.max(0, Math.abs(farmer.position.x - bed.x) - bed.w / 2), Math.max(0, Math.abs(farmer.position.z - bed.z) - bed.d / 2)) < 1.15);
+  const nearRipe = () => activeRoom.startsWith("house-") && berries.some((berry) => berry.ready && Math.hypot(berry.x - farmer.position.x, berry.z - farmer.position.z) < 1.8);
   function valid(x: number, z: number) {
     return navigation.isWalkable({ x, z });
   }
@@ -237,7 +240,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     camera.fov = viewAngle(room); camera.updateProjectionMatrix();
     if (room === "cafe") { camera.position.set(17.3, 3.05, 2.15); controls.target.set(21.3, 1, -1); }
     else if (room === "sorting") { camera.position.set(-5.1, 3.05, 22.4); controls.target.set(0, 1.15, 19.2); }
-    else { const [x, z] = HOUSE_CENTERS[Number(room.slice(-1))]; camera.position.set(x + 1.2, 6.8, z + 12.8); controls.target.set(x + 1.1, 1.1, z - 1.7); }
+    else { const [x, z] = HOUSE_CENTERS[Number(room.slice(6))]; camera.position.set(x + 1.2, 6.8, z + 12.8); controls.target.set(x + 1.1, 1.1, z - 1.7); }
   }
   function setRoom(next: RoomId) {
     if (next === activeRoom) return;
@@ -411,7 +414,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
       if (farmer.position.z > 3.0 || Math.abs(farmer.position.x - 21) > 4.5 || farmer.position.z < -4) setRoom("outside");
     } else if (activeRoom === "sorting") {
       if (farmer.position.z < 15.9 || farmer.position.z > 23.7 || Math.abs(farmer.position.x) > 6.7) setRoom("outside");
-    } else { const [x, z] = HOUSE_CENTERS[Number(activeRoom.slice(-1))]; if (Math.abs(farmer.position.x - x) > 3.9 || Math.abs(farmer.position.z - z) > 7.0) setRoom("outside"); }
+    } else { const [x, z] = HOUSE_CENTERS[Number(activeRoom.slice(6))]; if (Math.abs(farmer.position.x - x) > 3.9 || Math.abs(farmer.position.z - z) > 7.0) setRoom("outside"); }
     const access: FarmAccess = { water: posture === "stand" && nearBed(), harvest: posture === "stand" && nearBed() && nearRipe(), sit: posture === "sit" || (posture === "stand" && !!nearestSeat()), lie: posture === "lie" || (posture === "stand" && !!nearestLounger()), posture, inspect: posture === "stand" && nearBed(), inspecting };
     if (Object.keys(access).some((key) => access[key as keyof FarmAccess] !== lastBedAccess[key as keyof FarmAccess])) { lastBedAccess = access; onBedAccess(access); }
     const zone: Station | null = Math.abs(farmer.position.x) < 5.6 && farmer.position.z > 17 && farmer.position.z < 22.95 ? "sorting" : Math.abs(farmer.position.x - 21) < 3.4 && farmer.position.z > -.5 && farmer.position.z < .7 ? "cafe" : null;
@@ -470,6 +473,8 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
     setPaused(value) { paused = value; if (value) clearKeys(); },
     setName(name) { visitorLabels.setName(farmer, name); },
     getPose() { return { x: farmer.position.x, z: farmer.position.z, angle: farmer.rotation.y, action: posture !== "stand" ? posture : paused ? zoneLatched || "walk" : currentAction?.type || "walk", basket: basketCount, room: activeRoom }; },
+    nearbyVisitors() { return [...remotePeople].filter(([, remote]) => canHear({ x: farmer.position.x, z: farmer.position.z, room: activeRoom }, { x: remote.target.x, z: remote.target.z, room: remote.room })).sort(([, a], [, b]) => a.target.distanceTo(farmer.position) - b.target.distanceTo(farmer.position)).map(([id, remote]) => ({ id, name: remote.name })); },
+    setLocalSpeech(text) { visitorLabels.setSpeech(farmer, text); },
     setPlayers(players) {
       const activeIds = new Set(players.map((player) => player.id));
       remotePeople.forEach((remote, id) => { if (!activeIds.has(id)) { remote.object.removeFromParent(); visitorLabels.remove(remote.object); remote.clothes.dispose(); remotePeople.delete(id); } });
@@ -478,6 +483,7 @@ export function createFarmWorld(host: HTMLElement, onMessage: (text: string) => 
         let remote = remotePeople.get(player.id);
         if (!remote) { const avatar = person(player.name, "#7893a0"); avatar.object.position.set(player.x, 0, player.z); remote = { ...avatar, target: new THREE.Vector3(player.x, 0, player.z), angle: player.angle, action: player.action, name: player.name, room: player.room || "outside" }; remotePeople.set(player.id, remote); }
         if (remote.name !== player.name) { remote.name = player.name; visitorLabels.setName(remote.object, player.name); }
+        visitorLabels.setSpeech(remote.object, player.speech || "");
         remote.target.set(player.x, 0, player.z); remote.angle = player.angle; remote.action = player.action; remote.room = player.room || "outside"; remote.object.visible = remote.room === activeRoom; (remote.room === activeRoom ? activeScene : scene).add(remote.object);
         const carried = remote.object.getObjectByName("harvest-basket"); if (carried) carried.visible = player.basket > 0;
         const watering = remote.object.getObjectByName("water-can"); if (watering) watering.visible = player.action === "water";

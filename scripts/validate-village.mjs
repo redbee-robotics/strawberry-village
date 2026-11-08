@@ -6,7 +6,7 @@ async function module(name) {
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   return import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
 }
-const { sessionNicknames, unusedNickname, cleanNickname } = await module("nicknames");
+const { sessionNicknames, unusedNickname, cleanNickname, nicknameChoice, suggestedNicknames } = await module("nicknames");
 const players = [{ id: "old", name: "햇살 한 줌" }, { id: "v2-1", name: "햇살 한 줌" }, { id: "v2-2", name: "햇살 한 줌" }];
 const names = sessionNicknames(players);
 assert.equal(new Set(names.values()).size, 3);
@@ -14,6 +14,15 @@ assert.equal(names.get("old"), "햇살 한 줌");
 assert.deepEqual([...sessionNicknames([...players].reverse())], [...names]);
 assert.equal(cleanNickname("  초록  산책  "), "초록 산책");
 assert.ok(unusedNickname("가".repeat(16), new Set(["가".repeat(16)])).length <= 16);
+assert.equal(nicknameChoice("  햇살 한 줌  ", new Set(["햇살 한 줌"])).ok, false);
+assert.equal(nicknameChoice("Forest", new Set(["forest"])).ok, false);
+assert.equal(nicknameChoice("새로운 이름", new Set()).ok, true);
+assert.equal(nicknameChoice(" ", new Set()).ok, false);
+assert.equal(nicknameChoice("가".repeat(17), new Set()).ok, false);
+const crowded = sessionNicknames(Array.from({ length: 150 }, (_, i) => ({ id: `v2-${String(i).padStart(4, "0")}`, name: "딸기향 오후" })));
+assert.equal(new Set(crowded.values()).size, 150);
+assert.ok([...crowded.values()].every((name) => name.length <= 16 && !/\d/.test(name)));
+assert.ok(suggestedNicknames.includes(unusedNickname("딸기향 오후", new Set(["딸기향 오후"]))));
 const { encodePosition, decodePosition } = await module("presence-pose");
 const { MAP_BOUNDS, groundHeight, MOUNTAIN_TRAIL } = await module("terrain");
 for (const x of [MAP_BOUNDS.minX, 0, MAP_BOUNDS.maxX]) for (const z of [MAP_BOUNDS.minZ, 0, MAP_BOUNDS.maxZ]) {

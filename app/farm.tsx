@@ -3,11 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight, Check, ChevronRight, Compass, Droplets, Footprints,
-  HelpCircle, Leaf, Maximize, Minus, Moon, Plus, RotateCcw, Package, Coffee, ArrowDownWideNarrow, House, Users, Backpack, Armchair, BedDouble, Search, Cloud, CloudRain, Snowflake, CloudLightning,
+  HelpCircle, MessageCircle, Leaf, Minus, Moon, Plus, RotateCcw, Package, Coffee, ArrowDownWideNarrow, House, Users, Backpack, Armchair, BedDouble, Search, Cloud, CloudRain, Snowflake, CloudLightning,
   ShoppingBasket, SlidersHorizontal, Sun, Volume2, VolumeX, Wind, X,
 } from "lucide-react";
 import type { FarmWorld, FarmAction, FarmPlace, FarmAccess } from "./world";
 import { blankSave, pickedBerry, readSave, totalBerries, type FarmSave } from "./farm-state";
+import ConversationPanel from "./conversation";
+import { emptyConversation } from "./chat";
+import VillageMap from "./village-map";
 import StationPanel, { Inventory, Bag } from "./stations";
 import type { Station, RoomId } from "./village";
 import { connectVillage } from "./presence";
@@ -21,7 +24,7 @@ function Berry({ size = 24, ...props }: React.SVGProps<SVGSVGElement> & { size?:
   </svg>;
 }
 
-type Modal = "help" | "settings" | "basket" | "bag" | Station | null;
+type Modal = "chat" | "help" | "settings" | "basket" | "bag" | Station | null;
 
 const storageKey = "strawberry-garden-v1";
 
@@ -31,8 +34,11 @@ export default function Farm() {
   const villageConnection = useRef<ReturnType<typeof connectVillage> | null>(null);
   const audio = useRef<{ context: AudioContext; stop: () => void } | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const backdropPress = useRef<{ x: number; y: number } | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const actionToken = useRef(0);
+  const [conversation, setConversation] = useState(emptyConversation);
+  const [nearby, setNearby] = useState<{ id: string; name: string }[]>([]);
   const [showMap, setShowMap] = useState(false);
   const [showZoomControls, setShowZoomControls] = useState(false);
   const [ready, setReady] = useState(false);
@@ -94,9 +100,15 @@ export default function Farm() {
   }, [message]);
   useEffect(() => {
     if (!ready || !engine.current) return;
-    const connection = connectVillage(engine.current, setOnline, (name) => { setNickname(name); setNicknameDraft(name); });
+    const connection = connectVillage(engine.current, setOnline, (name) => { setNickname(name); setNicknameDraft(name); }, setConversation);
     villageConnection.current = connection;
     return () => { connection(); villageConnection.current = null; };
+  }, [ready, worldVersion]);
+  useEffect(() => {
+    if (!ready) return;
+    const refresh = () => { const next = engine.current?.nearbyVisitors() || []; setNearby((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next); };
+    refresh(); const timer = window.setInterval(refresh, 250);
+    return () => window.clearInterval(timer);
   }, [ready, worldVersion]);
   useEffect(() => { engine.current?.setBasket(saved.raw.length); engine.current?.setBag(saved.boxes); }, [saved.raw.length, saved.boxes, ready, worldVersion]);
   useEffect(() => { engine.current?.setDrink(!!activeDrink); if (loaded) try { localStorage.setItem("strawberry-held-drink-v1", activeDrink); } catch {} }, [activeDrink, ready, worldVersion, loaded]);
@@ -109,7 +121,7 @@ export default function Farm() {
     const keydown = (e: KeyboardEvent) => {
       if (e.key === "Escape") { setModal(null); return; }
       if (e.key !== "Tab" || !panel) return;
-      const buttons = Array.from(panel.querySelectorAll<HTMLElement>("button, input, [tabindex='0']"));
+      const buttons = Array.from(panel.querySelectorAll<HTMLElement>("button, input, textarea, [tabindex='0']"));
       const first = buttons[0], last = buttons[buttons.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
@@ -174,40 +186,43 @@ export default function Farm() {
   }
 
   function served(name: string) { setModal(null); setActiveDrink(name); engine.current?.setDrink(true); notify(`${name}를 받았어요.`); }
-  const contextActions: ("sit" | "lie" | "inspect")[] = [];
+  type VisibleAction = "water" | "harvest" | "sit" | "lie" | "inspect" | "talk";
+  const contextActions: VisibleAction[] = room.startsWith("house-") ? ["water", "harvest"] : [];
   if (bedAccess.sit) contextActions.push("sit");
   if (bedAccess.lie) contextActions.push("lie");
   if (bedAccess.inspect) contextActions.push("inspect");
-  const contextKey = (action: "sit" | "lie" | "inspect") => contextActions.indexOf(action) + 3;
+  if (nearby.length) contextActions.push("talk");
+  const contextKey = (action: VisibleAction) => contextActions.indexOf(action) + 1;
+  function triggerAction(action: VisibleAction) {
+    if (action === "talk") { if (nearby.length) setModal("chat"); }
+    else if (action === "inspect") engine.current?.inspectBed();
+    else if (action === "sit" || action === "lie") engine.current?.pose(action);
+    else if (!busy) void doAction(action);
+  }
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
       if (modal || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
-      const context = contextActions[Number(event.key) - 3];
-      if (context) { event.preventDefault(); if (context === "inspect") engine.current?.inspectBed(); else engine.current?.pose(context); return; }
-      const action = ({ "1": "water", "2": "harvest" } as const)[event.key as "1" | "2"];
-      if (action && !busy) { event.preventDefault(); void doAction(action); }
+      const action = contextActions[Number(event.key) - 1];
+      if (action) { event.preventDefault(); triggerAction(action); }
     };
     window.addEventListener("keydown", shortcuts);
     return () => window.removeEventListener("keydown", shortcuts);
-  }, [modal, ready, busy, place, bedAccess]);
+  }, [modal, ready, busy, place, bedAccess, room, nearby]);
 
   const WeatherIcon = weather?.snow ? Snowflake : weather && weather.code >= 95 ? CloudLightning : weather && weather.precipitation > 0 ? CloudRain : weather && weather.cloud > 50 ? Cloud : weather && !weather.isDay ? Moon : Sun;
 
   return <main className={`farm-app ${period} ${room !== "outside" ? "interior" : ""} ${reducedMotion ? "reduce-motion" : ""}`}>
-    <div ref={mount} className="world" aria-label="논밭과 네 동의 딸기 하우스, 작업장과 카페가 있는 3D 농장 마을" />
+    <div ref={mount} className="world" aria-label="논밭과 딸기 하우스, 작업장과 카페가 있는 3D 농장 마을" />
     <div className="world-wash" aria-hidden="true" />
 
     <header className="topbar">
-      <a className="brand" href="#" onClick={(e) => { e.preventDefault(); engine.current?.resetCamera(); }} aria-label="딸기마을 앞마당으로">
-        <span className="brand-mark"><Berry size={34} /></span>
-        <span><strong>딸기마을<span className="brand-dot">.</span></strong><small>STRAWBERRY VILLAGE</small></span>
-      </a>
+
       <div className="season-pill"><span className="live-dot" /><Users size={15} /><span>{online === null ? "마을 연결 중" : `${online}명 접속 중`}</span><span className="pill-separator" /><WeatherIcon size={15} /><span>{weather ? `${weather.description} ${weather.temperature.toFixed(1)}°` : weatherFailed ? "날씨 확인 중" : "날씨 연결 중"}</span></div>
       <div className="header-tools">
         <button className={`icon-button ${sound ? "is-on" : ""}`} onClick={toggleSound} aria-label={sound ? "자연 소리 끄기" : "자연 소리 켜기"} aria-pressed={sound} title="자연 소리">{sound ? <Volume2 size={19} /> : <VolumeX size={19} />}</button>
         <button className="icon-button" onClick={() => setModal("help")} aria-label="농장 이용 안내" title="이용 안내"><HelpCircle size={19} /></button>
         <span className="tool-divider" />
-        <button className="icon-button" onClick={() => setModal("settings")} aria-label="농장 설정" title="설정"><SlidersHorizontal size={19} /></button>
+        <button className="icon-button" onClick={() => setModal("settings")} aria-label="설정" title="설정"><SlidersHorizontal size={19} /></button>
       </div>
     </header>
 
@@ -215,8 +230,8 @@ export default function Farm() {
     {room === "outside" && <aside id="village-map" className={`village-map ${showMap ? "" : "is-minimized"}`} aria-label="마을 둘러보기">
       {!showMap ? <button className="map-minimized-button" onClick={() => setShowMap(true)} aria-label="마을 지도 펼치기" aria-expanded={false}><Compass size={16} /><strong>마을 지도</strong><Plus size={15} /></button> : <>
       <div className="map-heading"><Compass size={16} /><strong>마을 지도</strong><button className="icon-button map-minimize" onClick={() => setShowMap(false)} aria-label="마을 지도 최소화" aria-expanded={true} title="지도 최소화"><Minus size={16} /></button></div>
-      <div className="map-art" aria-hidden="true"><div className="map-field gold" /><div className="map-houses"><i /><i /></div><div className="map-field" /><div className="map-field" /><div className="map-houses"><i /><i /></div><div className="map-cafe">카페</div><div className="map-field gold" /><div className="map-workshop">선별</div><div className="map-field gold" /><span className="map-you" /></div>
-      <div className="map-legend"><span><House size={15} />딸기 하우스 4동</span><span><Package size={15} />딸기 선별장</span><span><Coffee size={15} />딸기 카페</span></div>
+      <VillageMap />
+      <div className="map-legend"><span><House size={15} />딸기 하우스</span><span><Package size={15} />딸기 선별장</span><span><Coffee size={15} />딸기 카페</span></div>
       </>}
     </aside>}
 
@@ -226,7 +241,6 @@ export default function Farm() {
       <button className="icon-button" onClick={() => engine.current?.zoom(0.82)} aria-label="농장 확대" disabled={!ready}><Plus size={18} /></button>
       <span />
       <button className="icon-button" onClick={() => engine.current?.zoom(1.22)} aria-label="농장 축소" disabled={!ready}><Minus size={18} /></button>
-      <button className="icon-button reset-view" onClick={() => { engine.current?.resetCamera(); setPlace("yard"); }} aria-label="처음 시점으로" disabled={!ready}><Maximize size={16} /></button>
     </aside>}
 
     <div className="inventory-cards">
@@ -238,14 +252,15 @@ export default function Farm() {
       <button className="bag-card" onClick={() => setModal("bag")} aria-label={`가방, 딸기 ${saved.boxes}팩`}><Backpack size={28} strokeWidth={1.4} /><span><small>가방</small><strong>{saved.boxes}<span>팩</span></strong></span><ArrowUpRight size={15} /></button>
     </div>
     <footer className="bottom-bar">
-      <nav className="action-dock village-dock" aria-label="농장에서 할 일">
-        <button className={active === "water" ? "dock-action selected water" : "dock-action"} onClick={() => void doAction("water")} disabled={!ready || busy || !bedAccess.water} aria-pressed={active === "water"} title={bedAccess.water ? "베드에 물 주기" : "딸기 베드 가까이 이동해 주세요"}><Droplets size={23} /><span>{busy && active === "water" ? "물 주는 중" : "물 주기"}</span><i>1</i></button>
-        <button className={active === "harvest" ? "dock-action selected berry" : "dock-action"} onClick={() => void doAction("harvest")} disabled={!ready || busy || !bedAccess.harvest} aria-pressed={active === "harvest"} title={bedAccess.harvest ? "가까운 딸기 수확" : "잘 익은 딸기 가까이 이동해 주세요"}><Berry size={23} /><span>{busy && active === "harvest" ? "수확 중" : "수확"}</span><i>2</i></button>
+      {contextActions.length > 0 && <nav className="action-dock village-dock" aria-label="농장에서 할 일">
+        {room.startsWith("house-") && <button className={active === "water" ? "dock-action selected water" : "dock-action"} onClick={() => void doAction("water")} disabled={!ready || busy || !bedAccess.water} aria-pressed={active === "water"} title={bedAccess.water ? "베드에 물 주기" : "딸기 베드 가까이 이동해 주세요"}><Droplets size={23} /><span>{busy && active === "water" ? "물 주는 중" : "물 주기"}</span><i>{contextKey("water")}</i></button>}
+        {room.startsWith("house-") && <button className={active === "harvest" ? "dock-action selected berry" : "dock-action"} onClick={() => void doAction("harvest")} disabled={!ready || busy || !bedAccess.harvest} aria-pressed={active === "harvest"} title={bedAccess.harvest ? "가까운 딸기 수확" : "잘 익은 딸기 가까이 이동해 주세요"}><Berry size={23} /><span>{busy && active === "harvest" ? "수확 중" : "수확"}</span><i>{contextKey("harvest")}</i></button>}
         {bedAccess.sit && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("sit"))} onClick={() => engine.current?.pose("sit")}><Armchair size={23} /><span>{bedAccess.posture === "sit" ? "일어나기" : "앉기"}</span><i>{contextKey("sit")}</i></button>}
         {bedAccess.lie && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("lie"))} onClick={() => engine.current?.pose("lie")}><BedDouble size={23} /><span>{bedAccess.posture === "lie" ? "일어나기" : "눕기"}</span><i>{contextKey("lie")}</i></button>}
         {bedAccess.inspect && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("inspect"))} onClick={() => engine.current?.inspectBed()}><Search size={23} /><span>{bedAccess.inspecting ? "돌아가기" : "살펴보기"}</span><i>{contextKey("inspect")}</i></button>}
-      </nav>
-      <div className="mouse-guide"><span>클릭 / 터치 <b>걷기</b></span><span>좌클릭 + 드래그 <b>화면 회전</b></span><span>우클릭 + 드래그 <b>화면 이동</b></span><span>휠 <b>확대/축소</b></span></div>
+        {nearby.length > 0 && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("talk"))} onClick={() => setModal("chat")}><MessageCircle size={23} /><span>말 걸기</span><i>{contextKey("talk")}</i></button>}
+      </nav>}
+      <div className="mouse-guide"><span>클릭 / 터치 <b>걷기</b></span><span>좌클릭 + 드래그 <b>화면 이동</b></span><span>우클릭 + 드래그 <b>화면 회전</b></span><span>휠 <b>확대/축소</b></span></div>
     </footer>
 
     {activeDrink && <span className="held-drink"><Coffee size={16} />{activeDrink}</span>}
@@ -254,16 +269,16 @@ export default function Farm() {
     {!ready && !error && <div className="loading-screen"><Berry size={44} /><span>초록빛 농장을 가꾸는 중</span><small>햇살이 들어올 자리를 만들고 있어요.</small><div className="loading-track"><i /></div></div>}
     {error && <div className="loading-screen"><Leaf size={36} /><h2>농장을 열지 못했어요.</h2><p>3D 화면을 지원하는 브라우저에서 다시 들어와 주세요.</p><button className="primary-button" onClick={() => window.location.reload()}>다시 들어가기 <RotateCcw size={15} /></button></div>}
 
-    {modal && <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) setModal(null); }}>
+    {modal && <div className="modal-backdrop" onPointerDownCapture={(event) => { backdropPress.current = event.isPrimary && event.target === event.currentTarget ? { x: event.clientX, y: event.clientY } : null; }} onPointerCancel={() => { backdropPress.current = null; }} onClick={(event) => { const start = backdropPress.current; backdropPress.current = null; if (start && event.target === event.currentTarget && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 8) setModal(null); }}>
       <div className={`modal ${modal === "sorting" || modal === "packing" || modal === "cafe" ? "station-modal" : ""}`} ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <button className="modal-close icon-button" onClick={() => setModal(null)} aria-label="닫기"><X size={21} /></button>
         <span className="eyebrow"><span />{modal === "help" ? "WELCOME TO OUR LITTLE FARM" : modal === "settings" ? "MAKE YOURSELF AT HOME" : "LITTLE MOMENTS, LITTLE HARVEST"}</span>
-        <h2 id="modal-title">{modal === "help" ? "딸기마을에서 보내는 시간" : modal === "settings" ? "마을 설정" : modal === "sorting" ? "딸기 선별장" : modal === "packing" ? "딸기 선별장" : modal === "cafe" ? "딸기 카페" : modal === "bag" ? "가방" : "바구니"}</h2>
+        <h2 id="modal-title">{modal === "chat" ? "주변 대화" : modal === "help" ? "딸기마을에서 보내는 시간" : modal === "settings" ? "설정" : modal === "sorting" ? "딸기 선별장" : modal === "packing" ? "딸기 선별장" : modal === "cafe" ? "딸기 카페" : modal === "bag" ? "가방" : "바구니"}</h2>
         {modal === "help" && <>
           <p className="modal-intro">정해진 순서도, 해야 할 일도 없어요.<br />당신의 속도로 머물러 주세요.</p>
           <div className="help-list">
             <div><Footprints /><span><strong>천천히 걸어요</strong><small>가고 싶은 곳을 클릭하거나 터치하면 그곳으로 걸어가요. 방향키로 걷고 스페이스바로 점프해요.</small></span></div>
-            <div><Compass /><span><strong>시선을 바꿔요</strong><small>모바일은 한 손가락으로 회전하고, 두 손가락으로 화면 이동과 확대·축소를 해요. 마우스는 좌클릭 드래그로 회전, 우클릭 드래그로 이동, 휠로 확대·축소해요.</small></span></div>
+            <div><Compass /><span><strong>시선을 바꿔요</strong><small>모바일은 한 손가락으로 화면을 옮기고, 두 손가락으로 회전하거나 핀치로 확대·축소해요. 마우스는 좌클릭 드래그로 이동, 우클릭 드래그로 회전, 휠로 확대·축소해요.</small></span></div>
             <div><Droplets /><span><strong>작은 마음을 나눠요</strong><small>딸기 베드 가까이 가면 물 주기와 수확 버튼이 켜져요. 낱알은 바구니에 담겨요.</small></span></div>
             <div><Package /><span><strong>바구니를 들고 선별장으로</strong><small>선별장에 걸어 들어가면 바구니 속 딸기를 팩에 담을 수 있어요.</small></span></div>
             <div><Coffee /><span><strong>카페도 걸어서 들어가요</strong><small>딸기 카페 안의 점원에게 딸기 음료를 주문할 수 있어요.</small></span></div>
@@ -278,8 +293,8 @@ export default function Farm() {
           <div className="setting-row"><span><strong>자연의 소리</strong><small>잎을 스치는 바람과 작은 새소리</small></span><button className={`switch ${sound ? "checked" : ""}`} role="switch" aria-checked={sound} aria-label="자연의 소리" onClick={toggleSound}><span /></button></div>
           <div className="setting-row"><span><strong>확대·축소 버튼</strong><small>화면 오른쪽에 시점 조절 버튼 표시</small></span><button className={`switch ${showZoomControls ? "checked" : ""}`} role="switch" aria-checked={showZoomControls} aria-label="확대·축소 버튼" onClick={() => setShowZoomControls((shown) => !shown)}><span /></button></div>
 
-          <button className="text-button reset-button" onClick={() => { engine.current?.resetCamera(); setModal(null); }}><RotateCcw size={14} />처음 시점으로 돌아가기</button>
         </>}
+        {modal === "chat" && <ConversationPanel conversation={conversation} nearby={nearby.map((visitor) => visitor.name)} send={(text) => villageConnection.current?.say(text) || Promise.resolve({ ok: false, message: "지금은 대화에 연결할 수 없어요." })} />}
         {modal === "basket" && <Inventory saved={saved} />}
         {modal === "bag" && <Bag saved={saved} />}
         {(modal === "sorting" || modal === "packing" || modal === "cafe") && <StationPanel key={modal} station={modal} saved={saved} update={setSaved} notify={notify} served={served} />}

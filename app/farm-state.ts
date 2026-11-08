@@ -1,3 +1,5 @@
+export const PACK_SIZE = 12;
+export const LEGACY_PACK_SIZE = 4;
 export type Grade = "large" | "regular" | "processing";
 export type PickedBerry = { id: string; grade: Grade; weight: number };
 export type FarmSave = {
@@ -22,16 +24,17 @@ export function readSave(value: unknown): FarmSave {
   const validBerry = (b: PickedBerry) => b && ["large", "regular", "processing"].includes(b.grade) && typeof b.id === "string" && Number.isFinite(b.weight);
   const raw = Array.isArray(record.raw) ? record.raw.filter(validBerry).slice(0, 100000) : Array.from({ length: count(record.berries) }, (_, i) => pickedBerry(i));
   const boxes = count(record.boxes);
-  const packs = Array.isArray(record.packs) ? record.packs.filter((pack) => Array.isArray(pack) && pack.length === 4 && pack.every(validBerry)).slice(-boxes || Infinity) : [];
+  const packs = Array.isArray(record.packs) ? record.packs.filter((pack) => Array.isArray(pack) && [LEGACY_PACK_SIZE, PACK_SIZE].includes(pack.length) && pack.every(validBerry)).slice(-boxes || Infinity) : [];
   return { raw, sorted: { large: count(record.sorted?.large), regular: count(record.sorted?.regular), processing: count(record.sorted?.processing) }, boxes, packs: boxes ? packs : [], harvested: Math.max(count(record.harvested), raw.length), watered: count(record.watered), drinks: count(record.drinks) };
 }
 export const totalBerries = (s: FarmSave) => s.raw.length + s.sorted.large + s.sorted.regular + s.sorted.processing;
-export type PackSlots = [string | null, string | null, string | null, string | null];
-export const emptyPackSlots = (): PackSlots => [null, null, null, null];
+export type PackSlots = (string | null)[];
+export const emptyPackSlots = (): PackSlots => Array.from({ length: PACK_SIZE }, () => null);
+export const packBerryCount = (state: FarmSave, index: number) => index < state.boxes - (state.packs?.length || 0) ? LEGACY_PACK_SIZE : state.packs?.[index - state.boxes + (state.packs?.length || 0)]?.length || LEGACY_PACK_SIZE;
 export function movePackBerry(slots: PackSlots, id: string, target: number | null): PackSlots {
   const source = slots.indexOf(id);
   if (target === null) return slots.map((value) => value === id ? null : value) as PackSlots;
-  if (!Number.isInteger(target) || target < 0 || target > 3 || source === target) return slots;
+  if (!Number.isInteger(target) || target < 0 || target >= PACK_SIZE || source === target) return slots;
   const next = [...slots] as PackSlots;
   if (source >= 0) next[source] = next[target];
   next[target] = id;
@@ -41,17 +44,18 @@ export function spendCafeBerries(state: FarmSave, cost: number): FarmSave | null
   if (!Number.isInteger(cost) || cost <= 0 || cafeBerries(state) < cost) return null;
   const processing = Math.min(cost, state.sorted.processing);
   const rawUsed = Math.min(state.raw.length, cost - processing), missing = cost - processing - rawUsed;
-  const opened = Math.ceil(missing / 4), packs = [...(state.packs || [])], unpacked: PickedBerry[] = [];
-  for (let i = 0; i < opened; i++) {
-    const contents = packs.pop() || Array.from({ length: 4 }, (_, j) => ({ ...pickedBerry(state.harvested + i * 4 + j), id: `opened-${crypto.randomUUID()}` }));
-    unpacked.push(...contents);
+  const packs = [...(state.packs || [])], unpacked: PickedBerry[] = [];
+  let opened = 0;
+  while (unpacked.length < missing) {
+    const contents = packs.pop() || Array.from({ length: LEGACY_PACK_SIZE }, (_, j) => ({ ...pickedBerry(state.harvested + opened * LEGACY_PACK_SIZE + j), id: `opened-${crypto.randomUUID()}` }));
+    unpacked.push(...contents); opened++;
   }
   return { ...state, raw: [...state.raw.slice(rawUsed), ...unpacked.slice(missing)], boxes: state.boxes - opened, packs, sorted: { ...state.sorted, processing: state.sorted.processing - processing }, drinks: state.drinks + 1 };
 }
-export const cafeBerries = (state: FarmSave) => state.raw.length + state.sorted.processing + state.boxes * 4;
+export const cafeBerries = (state: FarmSave) => state.raw.length + state.sorted.processing + Math.max(0, state.boxes - (state.packs?.length || 0)) * LEGACY_PACK_SIZE + (state.packs || []).reduce((sum, pack) => sum + pack.length, 0);
 
 export function packFromBasket(state: FarmSave, ids: string[]): FarmSave | null {
   const selected = new Set(ids);
-  if (ids.length !== 4 || selected.size !== 4 || ids.some((id) => !state.raw.some((berry) => berry.id === id))) return null;
+  if (ids.length !== PACK_SIZE || selected.size !== PACK_SIZE || ids.some((id) => !state.raw.some((berry) => berry.id === id))) return null;
   return { ...state, raw: state.raw.filter((berry) => !selected.has(berry.id)), boxes: state.boxes + 1, packs: [...(state.packs || []), ids.map((id) => state.raw.find((berry) => berry.id === id)!)] };
 }

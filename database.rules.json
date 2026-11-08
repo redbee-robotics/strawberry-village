@@ -9,16 +9,54 @@
           "$session": {
             ".write": "auth != null && auth.uid === $uid",
             ".validate": "newData.hasChildren(['id','name','x','z','angle','action','basket','updatedAt'])",
-            "id": { ".validate": "newData.isString() && newData.val() === $session" },
-            "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 16" },
-            "x": { ".validate": "newData.isNumber() && newData.val() >= -39 && newData.val() <= 39" },
-            "z": { ".validate": "newData.isNumber() && newData.val() >= -34 && newData.val() <= 34" },
-            "angle": { ".validate": "newData.isNumber() && newData.val() >= -100 && newData.val() <= 100" },
-            "action": { ".validate": "newData.val() === 'walk' || newData.val() === 'water' || newData.val() === 'harvest' || newData.val() === 'sorting' || newData.val() === 'cafe' || newData.val() === 'sit' || newData.val() === 'lie'" },
-            "room": { ".validate": "newData.val() === 'outside' || newData.val() === 'cafe' || newData.val() === 'sorting' || newData.val() === 'house-0' || newData.val() === 'house-1' || newData.val() === 'house-2' || newData.val() === 'house-3'" },
-            "basket": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
-            "updatedAt": { ".validate": "newData.isNumber() && newData.val() >= now - 60000 && newData.val() <= now + 1000" },
-            "$other": { ".validate": false }
+            "id": {
+              ".validate": "newData.isString() && newData.val() === $session"
+            },
+            "name": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 16"
+            },
+            "x": {
+              ".validate": "newData.isNumber() && newData.val() >= -39 && newData.val() <= 39"
+            },
+            "z": {
+              ".validate": "newData.isNumber() && newData.val() >= -34 && newData.val() <= 34"
+            },
+            "angle": {
+              ".validate": "newData.isNumber() && newData.val() >= -100 && newData.val() <= 100"
+            },
+            "action": {
+              ".validate": "newData.val() === 'walk' || newData.val() === 'water' || newData.val() === 'harvest' || newData.val() === 'sorting' || newData.val() === 'cafe' || newData.val() === 'sit' || newData.val() === 'lie'"
+            },
+            "room": {
+              ".validate": "newData.val() === 'outside' || newData.val() === 'cafe' || newData.val() === 'sorting' || newData.val() === 'house-0' || newData.val() === 'house-1' || newData.val() === 'house-2' || newData.val() === 'house-3'"
+            },
+            "basket": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+            },
+            "updatedAt": {
+              ".validate": "newData.isNumber() && newData.val() >= now - 60000 && newData.val() <= now + 1000"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      },
+      "speech": {
+        ".read": "auth != null",
+        "$uid": {
+          "$session": {
+            ".write": "auth != null && auth.uid === $uid && (!newData.exists() || root.child(\"village/players\").child($uid).child($session).exists())",
+            ".validate": "newData.hasChildren([\"text\", \"createdAt\"]) && (!data.exists() || now >= data.child(\"createdAt\").val() + 700)",
+            "text": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200"
+            },
+            "createdAt": {
+              ".validate": "newData.isNumber() && newData.val() >= now - 60000 && newData.val() <= now + 1000"
+            },
+            "$other": {
+              ".validate": false
+            }
           }
         }
       }

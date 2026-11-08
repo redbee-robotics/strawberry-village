@@ -1,11 +1,12 @@
 import * as THREE from "three";
+import { HOUSE_CENTERS, PADDY_PLOTS } from "./locations";
+export { HOUSE_CENTERS } from "./locations";
 import { groundHeight, MOUNTAIN_TRAIL } from "./terrain";
 
 export type Station = "sorting" | "packing" | "cafe";
-export type RoomId = "outside" | "cafe" | "sorting" | "house-0" | "house-1" | "house-2" | "house-3";
+export type RoomId = "outside" | "cafe" | "sorting" | "house-0" | "house-1" | "house-2" | "house-3" | "house-4" | "house-5";
 export type VillageBerry = { mesh: THREE.Mesh; x: number; z: number; aisle: number; growAt: number; ready: boolean };
 type Pose = { p: number[]; s: number[]; r?: number[] };
-export const HOUSE_CENTERS = [[-5.7, -19], [5.7, -19], [-5.7, 1], [5.7, 1]];
 
 export function buildVillage(scene: THREE.Object3D) {
   const rooms: Record<string, THREE.Group> = {};
@@ -74,11 +75,12 @@ export function buildVillage(scene: THREE.Object3D) {
     box([x, 0.015, 0], [2.7, 0.07, 58], m.path);
     if (x !== -30) box([x - 1.8, 0.005, 0], [0.48, 0.035, 57.5], m.water);
   }
-  for (const z of [-27, -9, 9, 27]) {
-    box([0, 0.02, z], [63, 0.08, 2.7], m.path);
-    box([0, 0.005, z - 1.8], [60, 0.025, 0.46], m.water);
+  for (const z of [-27, -9, 9, 27, 47]) {
+    box([0, 0.02, z], [126, 0.08, 2.7], m.path);
+    box([0, 0.005, z - 1.8], [124, 0.025, 0.46], m.water);
     for (const x of [-30, -10, 10, 30]) box([x - 1.6, 0.075, z], [1.4, 0.12, 3.05], m.path);
   }
+  for (const x of [-62, 62]) box([x, .02, 7], [2.7, .08, 80], m.path);
   const greenRice: Pose[] = [], goldRice: Pose[] = [], ears: Pose[] = [];
   function paddy(x: number, z: number, gold = false, width = 16.2, depth = 14.2, blocking = true) {
     box([x, 0.015, z], [width, 0.06, depth], m.water);
@@ -92,8 +94,7 @@ export function buildVillage(scene: THREE.Object3D) {
       if (gold && ix % 2 === 0) ears.push({ p: [px + 0.08, height + 0.03, pz], s: [0.05, 0.19, 0.05], r: [0, 0, -0.45] });
     }
   }
-  paddy(-20, -18, true); paddy(20, -18, false); paddy(-20, 0, false); paddy(-20, 18, true); paddy(20, 18, true);
-  paddy(-43, -13, true, 17, 22, false); paddy(43, -13, false, 17, 22, false); paddy(-43, 16, false, 17, 22, false); paddy(43, 16, true, 17, 22, false);
+  PADDY_PLOTS.forEach(({ x, z, gold, width, depth }) => paddy(x, z, gold, width, depth, false));
   const blade = new THREE.BufferGeometry(); blade.setAttribute("position", new THREE.Float32BufferAttribute([-.05, 0, 0, .07, 0, 0, .15, 1, .03], 3)); blade.computeVertexNormals();
   batch(blade, standard("#6f9147", { side: THREE.DoubleSide }), greenRice);
   batch(blade, standard("#b9ad56", { side: THREE.DoubleSide }), goldRice);
@@ -119,15 +120,15 @@ export function buildVillage(scene: THREE.Object3D) {
     const leafStart = leaves.length, flowerStart = flowers.length, centerStart = centers.length, legStart = legs.length, frameStart = frameMatrices.length;
     const w = 6.8, length = 12.7, eave = 2.25, rise = 2.3;
     box([cx, 0, cz], [w, .07, length], standard("#c6c2a8"));
-    // Leave only the front doorway open. The vestibule lets visitors turn into either aisle.
+    // Keep side walls solid and leave a doorway at both ends of the vestibule.
     for (const side of [-1, 1]) {
       obstacles.push({ x: cx + side * w / 2, z: cz, w: .12, d: length });
       const panel = mesh(new THREE.PlaneGeometry(length, eave), glass, [cx + side * w / 2, eave / 2, cz]); panel.rotation.y = Math.PI / 2; panel.castShadow = false;
-      obstacles.push({ x: cx + side * 2.2, z: cz + length / 2, w: 2.4, d: .12 });
-      const frontPanel = mesh(new THREE.PlaneGeometry(2.4, eave), glass, [cx + side * 2.2, eave / 2, cz + length / 2]); frontPanel.castShadow = false;
+      for (const end of [-1, 1]) {
+        obstacles.push({ x: cx + side * 2.2, z: cz + end * length / 2, w: 2.4, d: .12 });
+        const endPanel = mesh(new THREE.PlaneGeometry(2.4, eave), glass, [cx + side * 2.2, eave / 2, cz + end * length / 2]); endPanel.castShadow = false;
+      }
     }
-    obstacles.push({ x: cx, z: cz - length / 2, w, d: .12 });
-    const backPanel = mesh(new THREE.PlaneGeometry(w, eave), glass, [cx, eave / 2, cz - length / 2]); backPanel.castShadow = false;
     const positions: number[] = [], indices: number[] = [];
     for (let j = 0; j <= 1; j++) for (let i = 0; i <= 24; i++) { const a = i / 24 * Math.PI; positions.push(cx + Math.cos(a) * w / 2, eave + Math.sin(a) * rise, cz - length / 2 + j * length); if (!j && i < 24) indices.push(i, i + 1, i + 25, i + 1, i + 26, i + 25); }
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)); geometry.setIndex(indices); geometry.computeVertexNormals(); const roof = mesh(geometry, glass, [0, 0, 0]); roof.castShadow = false;
@@ -153,10 +154,10 @@ export function buildVillage(scene: THREE.Object3D) {
       }
     }
     const front = cz + length / 2;
-    box([cx, .05, front + 1.1], [1.5, .1, 2.2], m.path);
+    for (const end of [-1, 1]) box([cx, .05, cz + end * (length / 2 + 1.1)], [1.5, .1, 2.2], m.path);
     box([cx, 2.65, front + .025], [2.1, .46, .09], m.wood).name = "house-front-sign";
     label("딸기 하우스", [cx, 5.25, cz]);
-    for (const x of [cx - .8, cx + .8]) rod(new THREE.Vector3(x, .02, front), new THREE.Vector3(x, 2.5, front), 1.25);
+    for (const end of [-1, 1]) for (const x of [cx - .8, cx + .8]) rod(new THREE.Vector3(x, .02, cz + end * length / 2), new THREE.Vector3(x, 2.5, cz + end * length / 2), 1.25);
     const matrices = frameMatrices.slice(frameStart), frames = new THREE.InstancedMesh(frameGeometry, m.white, matrices.length); matrices.forEach((matrix, i) => frames.setMatrixAt(i, matrix)); frames.castShadow = true; frames.receiveShadow = true; root.add(frames);
     batch(leafGeometry, leafMaterial, leaves.slice(leafStart)); batch(cylinderGeometry, m.steel, legs.slice(legStart)); batch(sphereGeometry, m.flower, flowers.slice(flowerStart)); batch(sphereGeometry, m.pollen, centers.slice(centerStart));
     activeParent = scene;
@@ -201,6 +202,7 @@ export function buildVillage(scene: THREE.Object3D) {
     cylinder([x + .15, 1.04, 5.35], [.12, .29, .12], cupMaterial); cylinder([x + .15, 1.20, 5.35], [.125, .035, .125], m.white);
   }
   activeParent = scene;
+  for (const x of [-66, 66]) for (const z of [-25, -6, 14, 36]) tree(x, z, .75);
   tree(14.3, -3.8, .8); tree(27, 5.7, .8);
 
   // Open-front sorting and packing workshop; the stations are part of the village.
