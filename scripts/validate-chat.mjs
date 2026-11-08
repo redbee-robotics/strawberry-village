@@ -1,0 +1,17 @@
+import fs from "node:fs";
+import assert from "node:assert/strict";
+import ts from "typescript";
+const js = ts.transpileModule(fs.readFileSync(new URL("../app/chat.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+const { canHear, cleanSpeech, readSpeech, MAX_SPEECH_LENGTH, SPEECH_LIFETIME } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+assert.equal(canHear({x:0,z:0,room:"outside"},{x:3,z:4,room:"outside"}),true);
+assert.equal(canHear({x:0,z:0},{x:3,z:4.01}),false);
+assert.equal(canHear({x:0,z:0,room:"house-0"},{x:0,z:0,room:"house-1"}),false);
+assert.equal(cleanSpeech("  안녕하세요!  "),"안녕하세요!");
+const now=100000;
+assert.deepEqual(readSpeech({text:"안녕하세요!",createdAt:now},now),{text:"안녕하세요!",createdAt:now});
+for (const message of [{text:"",createdAt:now},{text:" ",createdAt:now},{text:"가".repeat(MAX_SPEECH_LENGTH+1),createdAt:now},{text:"안녕",createdAt:now-SPEECH_LIFETIME-1},{text:"안녕",createdAt:now+1001},{text:"안녕",createdAt:NaN}]) assert.equal(readSpeech(message,now),null);
+const rules=JSON.parse(fs.readFileSync(new URL("../database.rules.json",import.meta.url),"utf8"));
+assert.equal(rules.rules.village.speech[".read"],"auth != null");
+assert.ok(rules.rules.village.speech.$uid.$session[".write"].includes("auth.uid === $uid"));
+assert.equal(rules.rules.village.speech.$uid.$session.$other[".validate"],false);
+console.log("Chat validation passed: nearby radius, separate spaces, text bounds, expired bubbles and presence-rule structure. Firebase rule-engine validation requires the emulator or an authenticated deployment.");
