@@ -11,6 +11,7 @@ async function moduleUrl(name) {
  const url=`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`; cache.set(name,url); return url;
 }
 const { buildVillage }=await import(await moduleUrl("village"));
+const { buildCafeRoom, CAFE_ROOM_BOUNDS, CAFE_ENTRY }=await import(await moduleUrl("cafe-room"));
 const { createNavigation }=await import(await moduleUrl("navigation"));
 const load=THREE.TextureLoader.prototype.load;
 const previousDocument = globalThis.document;
@@ -37,5 +38,14 @@ try {
  assert.equal(navigation.isWalkable({x:23.5,z:2.2}),false);
  assert.equal(navigation.isWalkable({x:21,z:2.2}),true,"The center doorway remains walkable");
  assert.ok(navigation.findPath({x:21,z:4},{x:21,z:0.5}).length,"The cafe can still be entered");
+ const indoor = buildCafeRoom();
+ assert.equal(indoor.root.parent, null, "The larger cafe never belongs to the exterior scene");
+ assert.ok(CAFE_ROOM_BOUNDS.maxX - CAFE_ROOM_BOUNDS.minX >= 24);
+ assert.ok(CAFE_ROOM_BOUNDS.maxZ - CAFE_ROOM_BOUNDS.minZ >= 21);
+ const indoorNavigation = createNavigation(indoor.obstacles, { ...CAFE_ROOM_BOUNDS, maxZ: 10 });
+ assert.ok(indoorNavigation.findPath(CAFE_ENTRY, { x: 21, z: -5 }).length, "Reach the relocated counter");
+ assert.ok(indoorNavigation.findPath(CAFE_ENTRY, { x: 21, z: 9.6 }).length, "Reach the exit doorway");
+ assert.equal(indoorNavigation.isWalkable({ x: 9, z: 0 }), false);
+ assert.equal(indoorNavigation.isWalkable({ x: 21, z: -7 }), false);
  console.log("Cafe validation passed: hidden interior, opaque front/sides/back/gables/roof, window collision and walkable doorway.");
 }catch(error){ console.error(error.message); process.exitCode=1; }finally{THREE.TextureLoader.prototype.load=load;globalThis.document=previousDocument;}

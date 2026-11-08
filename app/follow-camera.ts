@@ -24,14 +24,16 @@ export function followForward(view: FollowView) {
   return { x: Math.sin(view.yaw), z: Math.cos(view.yaw) };
 }
 
-export function followFrame(position: Position, posture: "stand" | "sit" | "lie", view: FollowView, mobile: boolean, indoors = false) {
-  const target = { ...position, y: position.y + (posture === "stand" ? 1.1 : posture === "sit" ? 0.85 : 0.75) };
-  const distance = Math.min(view.distance, indoors ? 8 : 18);
-  const horizontal = Math.cos(view.pitch) * distance, forward = followForward(view);
+export function followFrame(position: Position, posture: "stand" | "sit" | "lie", view: FollowView, mobile: boolean, indoors: boolean | "cafe" = false) {
+  const cafe = indoors === "cafe";
+  const target = { ...position, y: position.y + (posture === "stand" ? (cafe ? 1.35 : 1.1) : posture === "sit" ? 0.85 : 0.75) };
+  const distance = cafe ? clamp(view.distance, 6, 16) : Math.min(view.distance, indoors ? 8 : 18);
+  const pitch = cafe ? Math.max(view.pitch, -0.38) : view.pitch;
+  const horizontal = Math.cos(pitch) * distance, forward = followForward(view);
   return {
     target,
-    eye: { x: target.x - forward.x * horizontal, y: target.y - Math.sin(view.pitch) * distance, z: target.z - forward.z * horizontal },
-    fov: mobile ? 65 : 60,
+    eye: { x: target.x - forward.x * horizontal, y: target.y - Math.sin(pitch) * distance, z: target.z - forward.z * horizontal },
+    fov: cafe ? (mobile ? 74 : 70) + (distance - 6) * 2 : mobile ? 65 : 60,
   };
 }
 

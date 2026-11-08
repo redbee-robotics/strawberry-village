@@ -24,7 +24,7 @@ function Berry({ size = 24, ...props }: React.SVGProps<SVGSVGElement> & { size?:
   </svg>;
 }
 
-type Modal = "chat" | "help" | "settings" | "basket" | "bag" | Station | null;
+type Modal = "help" | "settings" | "basket" | "bag" | Station | null;
 
 const storageKey = "strawberry-garden-v1";
 
@@ -37,6 +37,7 @@ export default function Farm() {
   const backdropPress = useRef<{ x: number; y: number } | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const actionToken = useRef(0);
+  const [showChat, setShowChat] = useState(false);
   const [conversation, setConversation] = useState(emptyConversation);
   const [nearby, setNearby] = useState<{ id: string; name: string }[]>([]);
   const [showMap, setShowMap] = useState(false);
@@ -111,7 +112,7 @@ export default function Farm() {
     return () => window.clearInterval(timer);
   }, [ready, worldVersion]);
   useEffect(() => { engine.current?.setBasket(saved.raw.length); engine.current?.setBag(saved.boxes); }, [saved.raw.length, saved.boxes, ready, worldVersion]);
-  useEffect(() => { engine.current?.setDrink(!!activeDrink); if (loaded) try { localStorage.setItem("strawberry-held-drink-v1", activeDrink); } catch {} }, [activeDrink, ready, worldVersion, loaded]);
+  useEffect(() => { engine.current?.setDrink(!!activeDrink); if (loaded) try { if (activeDrink) localStorage.setItem("strawberry-held-drink-v1", activeDrink); else localStorage.removeItem("strawberry-held-drink-v1"); } catch {} }, [activeDrink, ready, worldVersion, loaded]);
   useEffect(() => { engine.current?.setPaused(!!modal); }, [modal, ready, worldVersion]);
   useEffect(() => {
     if (!modal) return;
@@ -179,7 +180,7 @@ export default function Farm() {
     if (result === "cancelled") { setActive("walk"); return; }
     if (result === "far") { setActive("walk"); notify("하우스의 딸기 재배대 가까이를 클릭하거나 터치해 이동해 주세요."); return; }
     if (result === "empty") { setActive("walk"); notify(type === "drink" ? "먼저 카페에서 음료를 받아 주세요." : "딸기가 다시 익을 때까지 물을 주며 기다려볼까요?"); return; }
-    if (type === "drink") { setActiveDrink(""); engine.current?.setDrink(false); setActive("walk"); notify(`${activeDrink}를 다 마셨어요.`); return; }
+    if (type === "drink") { try { localStorage.removeItem("strawberry-held-drink-v1"); } catch {} setActiveDrink(""); engine.current?.setDrink(false); setActive("walk"); notify("음료를 다 마셨어요."); return; }
     if (type === "water") {
       setSaved((s) => ({ ...s, watered: s.watered + 1 })); notify("촉촉한 흙 냄새. 딸기가 한 뼘 더 자랐어요.");
     } else {
@@ -197,14 +198,15 @@ export default function Farm() {
   if (activeDrink) contextActions.push("drink");
   const contextKey = (action: VisibleAction) => contextActions.indexOf(action) + 1;
   function triggerAction(action: VisibleAction) {
-    if (action === "talk") { if (nearby.length) setModal("chat"); }
+    if (action === "talk") { if (nearby.length) setShowChat(true); }
     else if (action === "inspect") engine.current?.inspectBed();
     else if (action === "sit" || action === "lie") engine.current?.pose(action);
     else if (!busy) void doAction(action);
   }
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
-      if (modal || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (modal || event.repeat || event.ctrlKey || event.metaKey || event.altKey || target?.closest("input, textarea, select, [contenteditable='true']")) return;
       const action = contextActions[Number(event.key) - 1];
       if (action) { event.preventDefault(); triggerAction(action); }
     };
@@ -261,12 +263,16 @@ export default function Farm() {
         {bedAccess.sit && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("sit"))} onClick={() => engine.current?.pose("sit")}><Armchair size={23} /><span>{bedAccess.posture === "sit" ? "일어나기" : "앉기"}</span><i>{contextKey("sit")}</i></button>}
         {bedAccess.lie && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("lie"))} onClick={() => engine.current?.pose("lie")}><BedDouble size={23} /><span>{bedAccess.posture === "lie" ? "일어나기" : "눕기"}</span><i>{contextKey("lie")}</i></button>}
         {bedAccess.inspect && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("inspect"))} onClick={() => engine.current?.inspectBed()}><Search size={23} /><span>{bedAccess.inspecting ? "돌아가기" : "살펴보기"}</span><i>{contextKey("inspect")}</i></button>}
-        {nearby.length > 0 && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("talk"))} onClick={() => setModal("chat")}><MessageCircle size={23} /><span>말 걸기</span><i>{contextKey("talk")}</i></button>}
+        {nearby.length > 0 && <button className="dock-action context-action" aria-keyshortcuts={String(contextKey("talk"))} onClick={() => setShowChat(true)}><MessageCircle size={23} /><span>말 걸기</span><i>{contextKey("talk")}</i></button>}
         {activeDrink && <button className="dock-action context-action" disabled={!ready || busy} aria-keyshortcuts={String(contextKey("drink"))} aria-label={`${activeDrink} 마시기`} onClick={() => void doAction("drink")}><Coffee size={23} /><span>{busy && active === "drink" ? "마시는 중" : "마시기"}</span><i>{contextKey("drink")}</i></button>}
       </nav>}
       <div className="mouse-guide"><span>방향키 / 바닥 클릭 <b>걷기</b></span><span>드래그 <b>둘러보기</b></span><span>스페이스바 <b>점프</b></span><span>휠 <b>확대/축소</b></span></div>
     </footer>
 
+    {showChat && !modal && <aside className="conversation-panel" aria-label="주변 대화" onKeyDown={(event) => { if (event.key === "Escape") { setShowChat(false); mount.current?.querySelector("canvas")?.focus(); } }}>
+      <header><h2><MessageCircle size={17} />주변 대화</h2><button className="icon-button" aria-label="대화창 닫기" onClick={() => { setShowChat(false); mount.current?.querySelector("canvas")?.focus(); }}><X size={18} /></button></header>
+      <ConversationPanel conversation={conversation} nearby={nearby.map((visitor) => visitor.name)} send={(text) => villageConnection.current?.say(text) || Promise.resolve({ ok: false, message: "지금은 대화에 연결할 수 없어요." })} />
+    </aside>}
     {activeDrink && <span className="held-drink"><Coffee size={16} />{activeDrink}</span>}
     {message && <div className="toast" role="status" aria-live="polite"><Check size={15} />{message}</div>}
 
@@ -277,7 +283,7 @@ export default function Farm() {
       <div className={`modal ${modal === "sorting" || modal === "packing" || modal === "cafe" ? "station-modal" : ""}`} ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <button className="modal-close icon-button" onClick={() => setModal(null)} aria-label="닫기"><X size={21} /></button>
         <span className="eyebrow"><span />{modal === "help" ? "WELCOME TO OUR LITTLE FARM" : modal === "settings" ? "MAKE YOURSELF AT HOME" : "LITTLE MOMENTS, LITTLE HARVEST"}</span>
-        <h2 id="modal-title">{modal === "chat" ? "주변 대화" : modal === "help" ? "딸기마을에서 보내는 시간" : modal === "settings" ? "설정" : modal === "sorting" ? "딸기 선별장" : modal === "packing" ? "딸기 선별장" : modal === "cafe" ? "딸기 카페" : modal === "bag" ? "가방" : "바구니"}</h2>
+        <h2 id="modal-title">{modal === "help" ? "딸기마을에서 보내는 시간" : modal === "settings" ? "설정" : modal === "sorting" ? "딸기 선별장" : modal === "packing" ? "딸기 선별장" : modal === "cafe" ? "딸기 카페" : modal === "bag" ? "가방" : "바구니"}</h2>
         {modal === "help" && <>
           <p className="modal-intro">정해진 순서도, 해야 할 일도 없어요.<br />당신의 속도로 머물러 주세요.</p>
           <div className="help-list">
@@ -298,7 +304,6 @@ export default function Farm() {
           <div className="setting-row"><span><strong>확대·축소 버튼</strong><small>화면 오른쪽에 시점 조절 버튼 표시</small></span><button className={`switch ${showZoomControls ? "checked" : ""}`} role="switch" aria-checked={showZoomControls} aria-label="확대·축소 버튼" onClick={() => setShowZoomControls((shown) => !shown)}><span /></button></div>
 
         </>}
-        {modal === "chat" && <ConversationPanel conversation={conversation} nearby={nearby.map((visitor) => visitor.name)} send={(text) => villageConnection.current?.say(text) || Promise.resolve({ ok: false, message: "지금은 대화에 연결할 수 없어요." })} />}
         {modal === "basket" && <Inventory saved={saved} />}
         {modal === "bag" && <Bag saved={saved} />}
         {(modal === "sorting" || modal === "packing" || modal === "cafe") && <StationPanel key={modal} station={modal} saved={saved} update={setSaved} notify={notify} served={served} heldDrink={activeDrink} />}

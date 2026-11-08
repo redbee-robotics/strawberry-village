@@ -29,6 +29,8 @@ jobs:
       - name: Verify presence environment separation
         run: node scripts/validate-presence-isolation.mjs
       - name: Verify presence and conversation behavior
-        run: node scripts/validate-presence.mjs
+        run: |
+          node scripts/validate-chat.mjs
+          node scripts/validate-presence.mjs
       - name: Verify actual Firebase rules
         run: npx --yes firebase-tools@15.35.0 emulators:exec --only database --project strawberry-village --non-interactive "node scripts/validate-database-rules.mjs"

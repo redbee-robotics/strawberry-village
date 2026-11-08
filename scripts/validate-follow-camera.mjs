@@ -43,6 +43,12 @@ for (const factor of [0.01, 100]) {
 const wide = followFrame(position, "stand", zoomFollowView(view, 100), false);
 close(distance(wide.eye, wide.target), 18);
 assert.deepEqual(wide.target, frame.target, "The wider view stays anchored to the character");
+for (const mobile of [false, true]) {
+  const cafe = followFrame(position, "stand", readFollowView({ distance: 3, pitch: -1.05 }), mobile, "cafe");
+  assert.ok(distance(cafe.eye, cafe.target) >= 6 - 1e-8, "Cafe starts with a wider framing even after a close saved view");
+  assert.ok(cafe.fov >= 70, "The cafe has a wider field of view");
+  assert.ok(cafe.eye.y < 7.3, "The larger cafe leaves room above the camera");
+}
 const origin = { x: 0, y: 1.1, z: 0 }, wanted = { x: 0, y: 3, z: 5 };
 const wall = { min: { x: -4, y: 0, z: 2 }, max: { x: 4, y: 4, z: 2.1 } };
 const blocked = constrainFollowEye(origin, wanted, [wall]);
