@@ -17,6 +17,9 @@ for (const path of ["/", "/index.html", "/dev/"]) {
       });
       assert.equal(response.status, 200, `${url}: expected HTTP 200`);
       assert.equal(new URL(response.url).origin, origin.origin, `${url}: unexpected redirect`);
+      const cacheControl = response.headers.get("cache-control") || "";
+      const cacheDirectives = cacheControl.toLowerCase().split(",").map(value => value.trim());
+      assert.ok(cacheDirectives.includes("no-cache") || cacheDirectives.includes("no-store"), `${url}: HTML must revalidate before reuse; received Cache-Control: ${cacheControl || "(missing)"}`);
       assert.equal(response.headers.get("x-frame-options"), null, `${url}: X-Frame-Options blocks embedding`);
 
       const csp = response.headers.get("content-security-policy");
@@ -33,7 +36,7 @@ for (const path of ["/", "/index.html", "/dev/"]) {
       const html = await response.text();
       const head = html.match(/<head\b[^>]*>([\s\S]*?)<\/head>/i)?.[1];
       assert.ok(head?.includes(embed), `${url}: Jeojat script is missing or changed in <head>`);
-      console.log(`${url}: HTTP 200; script present; X-Frame-Options absent; Content-Security-Policy: ${csp}`);
+      console.log(`${url}: HTTP 200; script present; Cache-Control: ${cacheControl}; X-Frame-Options absent; Content-Security-Policy: ${csp}`);
       break;
     } catch (error) {
       if (attempt >= 5) throw error;
