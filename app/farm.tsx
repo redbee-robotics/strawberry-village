@@ -246,6 +246,8 @@ export default function Farm() {
   }, [modal, ready, busy, place, bedAccess, room, nearby, activeDrink]);
 
   const WeatherIcon = weather?.snow ? Snowflake : weather && weather.code >= 95 ? CloudLightning : weather && weather.precipitation > 0 ? CloudRain : weather && weather.cloud > 50 ? Cloud : weather && !weather.isDay ? Moon : Sun;
+  const onlineLabel = online === null ? "마을 연결 중" : `${online}명 접속 중`;
+  const weatherLabel = weather ? `${weather.description} ${weather.temperature.toFixed(1)}°` : weatherFailed ? "날씨 확인 중" : "날씨 연결 중";
 
   return <main className={`farm-app follow-camera ${period} ${room !== "outside" ? "interior" : ""} ${reducedMotion ? "reduce-motion" : ""}`}>
     <div ref={mount} className="world" aria-label="논밭과 딸기 하우스, 작업장과 카페가 있는 3D 농장 마을" />
@@ -258,7 +260,7 @@ export default function Farm() {
         </button>
         {jeojatMessage && modal !== "settings" && <p className="jeojat-entry-message" role="status">{jeojatMessage}</p>}
       </div>
-      <div className="season-pill"><span className="live-dot" /><Users size={15} /><span>{online === null ? "마을 연결 중" : `${online}명 접속 중`}</span><span className="pill-separator" /><WeatherIcon size={15} /><span>{weather ? `${weather.description} ${weather.temperature.toFixed(1)}°` : weatherFailed ? "날씨 확인 중" : "날씨 연결 중"}</span></div>
+      <div className="season-pill"><span className="live-dot" /><Users size={15} /><span>{onlineLabel}</span><span className="pill-separator" /><WeatherIcon size={15} /><span>{weatherLabel}</span></div>
       <div className="header-tools">
         <button className={`icon-button ${sound ? "is-on" : ""}`} onClick={toggleSound} aria-label={sound ? "자연 소리 끄기" : "자연 소리 켜기"} aria-pressed={sound} title="자연 소리">{sound ? <Volume2 size={19} /> : <VolumeX size={19} />}</button>
         <button className="icon-button" onClick={() => setModal("help")} aria-label="농장 이용 안내" title="이용 안내"><HelpCircle size={19} /></button>
@@ -271,7 +273,7 @@ export default function Farm() {
     {room === "outside" && <aside ref={mapRef} id="village-map" className={`village-map ${showMap ? "" : "is-minimized"}`} aria-label="마을 둘러보기">
       {!showMap ? <button className="map-minimized-button" onClick={() => setShowMap(true)} aria-label="마을 지도 펼치기" aria-expanded={false}><Compass size={16} /><strong>마을 지도</strong><Plus size={15} /></button> : <>
       <div className="map-heading"><Compass size={16} /><strong>마을 지도</strong><button className="icon-button map-minimize" onClick={() => setShowMap(false)} aria-label="마을 지도 최소화" aria-expanded={true} title="지도 최소화"><Minus size={16} /></button></div>
-      <VillageMap />
+      <VillageMap world={ready ? engine.current : null} />
       <div className="map-legend"><span><House size={15} />딸기 하우스</span><span><Package size={15} />딸기 선별장</span><span><Coffee size={15} />딸기 카페</span></div>
       </>}
     </aside>}
@@ -321,6 +323,10 @@ export default function Farm() {
         <span className="eyebrow"><span />{modal === "help" ? "WELCOME TO OUR LITTLE FARM" : modal === "settings" ? "MAKE YOURSELF AT HOME" : "LITTLE MOMENTS, LITTLE HARVEST"}</span>
         <h2 id="modal-title">{modal === "help" ? "딸기마을에서 보내는 시간" : modal === "settings" ? "설정" : modal === "sorting" ? "딸기 선별" : modal === "packing" ? "딸기 선별" : modal === "cafe" ? "딸기 카페" : modal === "bag" ? "가방" : "바구니"}</h2>
         {modal === "help" && <>
+          <dl className="help-village-status" aria-label="현재 마을 정보">
+            <div><dt><Users size={18} aria-hidden="true" />접속자</dt><dd>{onlineLabel}</dd></div>
+            <div><dt><WeatherIcon size={18} aria-hidden="true" />현재 날씨</dt><dd>{weatherLabel}</dd></div>
+          </dl>
           <p className="modal-intro">정해진 순서도, 해야 할 일도 없어요.<br />당신의 속도로 머물러 주세요.</p>
           <div className="help-list">
             <div><Footprints /><span><strong>천천히 걸어요</strong><small>가고 싶은 곳을 클릭하거나 터치하면 그곳으로 걸어가요. 방향키로 걷고 스페이스바로 점프해요.</small></span></div>
