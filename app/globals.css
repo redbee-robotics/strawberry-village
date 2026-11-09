@@ -152,3 +152,13 @@
   .farm-app .village-map{bottom:calc(max(18px,calc(env(safe-area-inset-bottom) + 10px)) + var(--action-dock-height,53px) + 10px)}
   .conversation-panel{bottom:calc(max(18px,calc(env(safe-area-inset-bottom) + 10px)) + var(--action-dock-height,53px) + var(--village-map-height,37px) + 24px);width:min(320px,calc(100vw - 24px))}
 }
+.help-village-status{display:none}
+@media(max-width:1000px){
+  .help-village-status{display:grid;gap:14px;margin:0 0 22px;padding:16px;background:#ecf0df;border:1px solid #d7dfc9;border-radius:13px;color:#38562d}
+  .help-village-status>div{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px}
+  .help-village-status dt{display:flex;align-items:center;gap:8px;font-size:13px;color:#4d6b3b}
+  .help-village-status dd{margin:0;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+}
+.map-player{position:absolute;z-index:1;width:10px;height:10px;transform:translate(-50%,-50%);border-radius:50%;background:#b6443a;border:2px solid #fffdf0;box-shadow:0 0 0 2px #fff9e780;pointer-events:none}
+.map-current-location{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;color:#3c5634}
+.map-current-location>span{width:8px;height:8px;flex-shrink:0;border-radius:50%;background:#b6443a;border:1px solid #fffdf0;box-shadow:0 0 0 2px #d9dfca}
