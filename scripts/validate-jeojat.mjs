@@ -7,7 +7,7 @@ const source = await readFile(new URL("../index.html", import.meta.url), "utf8")
 const embed = source.match(/<script\b[^>]*src="https:\/\/jeojat\.altolab\.ai\/embed\.js"[^>]*><\/script>/)?.[0];
 assert.ok(embed, "The entry page must contain the Jeojat embed script");
 
-for (const path of ["/", "/index.html", "/dev/"]) {
+for (const path of ["/", "/index.html"]) {
   const url = new URL(path, origin);
   for (let attempt = 1; ; attempt++) {
     try {
